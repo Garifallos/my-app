@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 
 interface Question {
   question: string;
@@ -9,40 +9,52 @@ interface Question {
   answer: number;
 }
 
-export default function CategoryQuizPage() {
-  // ---------------- ROUTE PARAM ----------------
+export default function Page() {
+  const router = useRouter();
   const params = useParams<{ category: string }>();
-  const category = params.category; // π.χ. "18"
+  const category = params.category;
 
-  // ---------------- QUERY PARAM ----------------
   const searchParams = useSearchParams();
-  const difficulty = searchParams.get("difficulty") || ""; // π.χ. "easy"
+  const difficultyFromUrl = searchParams.get("difficulty") || "";
 
-  // ---------------- STATE ----------------
   const [questions, setQuestions] = useState<Question[]>([]);
   const [step, setStep] = useState(0);
   const [score, setScore] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [theme, setTheme] = useState("light");
 
-  // ---------------- LOAD QUESTIONS ----------------
+  // THEME LOAD
   useEffect(() => {
-    async function load() {
-      if (!category) return;
+    const saved = localStorage.getItem("theme");
+    const initial = saved ? saved : "light";
+    setTheme(initial);
+    document.body.classList.toggle("dark", initial === "dark");
+  }, []);
 
+  function toggleTheme() {
+    const newTheme = theme === "light" ? "dark" : "light";
+    setTheme(newTheme);
+    localStorage.setItem("theme", newTheme);
+    document.body.classList.toggle("dark", newTheme === "dark");
+  }
+
+  // LOAD QUESTIONS BASED ON URL
+  useEffect(() => {
+    async function loadQuestions() {
+      if (!category) return;
       setLoading(true);
 
-      // Build API URL
       let url = `https://opentdb.com/api.php?amount=5&category=${category}&type=multiple`;
 
-      if (difficulty) {
-        url += `&difficulty=${difficulty}`;
+      if (difficultyFromUrl) {
+        url += `&difficulty=${difficultyFromUrl}`;
       }
 
       const res = await fetch(url);
       const data = await res.json();
 
-      const formatted = data.results.map((q: any) => {
+      const formatted: Question[] = data.results.map((q: any) => {
         const options = [...q.incorrect_answers];
         const randomIndex = Math.floor(Math.random() * (options.length + 1));
         options.splice(randomIndex, 0, q.correct_answer);
@@ -61,90 +73,88 @@ export default function CategoryQuizPage() {
       setLoading(false);
     }
 
-    load();
-  }, [category, difficulty]);
+    loadQuestions();
+  }, [category, difficultyFromUrl]);
 
-  // ---------------- NEXT QUESTION ----------------
+  // REDIRECT WHEN QUIZ ENDS
+  useEffect(() => {
+    if (questions.length > 0 && step === questions.length) {
+      router.push("/feedback");
+    }
+  }, [step, questions.length, router]);
+
+  // STOP UI RENDER WHEN REDIRECTING
+  if (step === questions.length) return null;
+
   function next() {
     if (picked === questions[step].answer) {
-      setScore((prev) => prev + 1);
+      setScore((s) => s + 1);
     }
-
     setPicked(null);
-    setStep((prev) => prev + 1);
+    setStep((s) => s + 1);
   }
 
-  // ---------------- LOADING STATE ----------------
   if (loading) {
     return <div className="quiz-container">Loading…</div>;
   }
 
-  // ---------------- NO QUESTIONS FOUND ----------------
-  if (!loading && questions.length === 0) {
+  if (questions.length === 0) {
     return (
       <div className="quiz-container">
-        <h2>No questions found</h2>
-        <p>
-          Try a different category or difficulty.  
-          <br />
-          <code>/quiz/{category}?difficulty={difficulty}</code>
-        </p>
+        <h2>No questions found.</h2>
+        <p>Try a different category or difficulty.</p>
       </div>
     );
   }
 
-  // ---------------- END SCREEN ----------------
-  if (step === questions.length) {
-    return (
-      <div className="quiz-container">
-        <h1>Score: {score} / {questions.length}</h1>
-
-        <button
-          className="next-btn"
-          onClick={() => {
-            setStep(0);
-            setScore(0);
-            setPicked(null);
-          }}
-        >
-          Restart
-        </button>
-      </div>
-    );
-  }
-
-  // ---------------- MAIN UI ----------------
   return (
-    <div className="quiz-container">
-      <h2
-        className="question-text"
-        dangerouslySetInnerHTML={{ __html: questions[step].question }}
-      />
-
-      <p style={{ opacity: 0.7 }}>
-        Category: <strong>{category}</strong>  
-        {difficulty && <> | Difficulty: <strong>{difficulty}</strong></>}
-      </p>
-
-      {questions[step].options.map((op, index) => (
-        <button
-          key={index}
-          className={`option-btn ${picked === index ? "selected" : ""}`}
-          onClick={() => setPicked(index)}
-          dangerouslySetInnerHTML={{ __html: op }}
-        ></button>
-      ))}
-
-      <button className="next-btn" disabled={picked === null} onClick={next}>
-        Next
-      </button>
-
-      <div className="progress">
-        <div
-          className="bar"
-          style={{ width: `${(step / questions.length) * 100}%` }}
-        ></div>
+    <>
+      {/* THEME BUTTON */}
+      <div
+        className={`theme-switch ${theme === "dark" ? "dark" : ""}`}
+        onClick={toggleTheme}
+      >
+        <span className="switch-icon sun">☀️</span>
+        <span className="switch-icon moon">🌙</span>
+        <div className="switch-circle"></div>
       </div>
-    </div>
+
+      <div className="quiz-container">
+        <h2
+          className="question-text"
+          dangerouslySetInnerHTML={{ __html: questions[step].question }}
+        />
+
+        <p>
+          Category: <strong>{category}</strong>
+          {difficultyFromUrl && (
+            <>
+              {" "} | Difficulty: <strong>{difficultyFromUrl}</strong>
+            </>
+          )}
+        </p>
+
+        {/* OPTIONS */}
+        {questions[step].options.map((op, index) => (
+          <button
+            key={index}
+            className={`option-btn ${picked === index ? "selected" : ""}`}
+            onClick={() => setPicked(index)}
+            dangerouslySetInnerHTML={{ __html: op }}
+          ></button>
+        ))}
+
+        <button disabled={picked === null} className="next-btn" onClick={next}>
+          Next
+        </button>
+
+        <div className="progress">
+          <div
+            className="bar"
+            style={{ width: `${(step / questions.length) * 100}%` }}
+          ></div>
+        </div>
+      </div>
+    </>
   );
 }
