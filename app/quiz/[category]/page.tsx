@@ -3,140 +3,68 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 
-interface Question {
-  question: string;
-  options: string[];
-  answer: number;
-}
-
 export default function QuizPage() {
+  const params = useParams();
   const router = useRouter();
-  const params = useParams<{ category: string }>();
-  const searchParams = useSearchParams();
+  const search = useSearchParams();
 
   const category = params.category;
-  const difficultyFromUrl = searchParams.get("difficulty") || "";
+  const difficulty = search.get("difficulty") || "";
 
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [questions, setQuestions] = useState([]);
   const [step, setStep] = useState(0);
-  const [score, setScore] = useState(0);
-  const [picked, setPicked] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [picked, setPicked] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // ----------------------------------------------------
-  // LOAD QUESTIONS
-  // ----------------------------------------------------
   useEffect(() => {
-    async function loadQuestions() {
+    async function load() {
       if (!category) return;
-      setLoading(true);
 
       let url = `https://opentdb.com/api.php?amount=5&category=${category}&type=multiple`;
-      if (difficultyFromUrl) url += `&difficulty=${difficultyFromUrl}`;
+      if (difficulty) url += `&difficulty=${difficulty}`;
 
       const res = await fetch(url);
       const data = await res.json();
 
-      const formatted: Question[] = data.results.map((q: any) => {
-        const options = [...q.incorrect_answers];
-        const randomIndex = Math.floor(Math.random() * (options.length + 1));
-        options.splice(randomIndex, 0, q.correct_answer);
+      const formatted = data.results.map((q) => {
+        const opts = [...q.incorrect_answers];
+        const rand = Math.floor(Math.random() * (opts.length + 1));
+        opts.splice(rand, 0, q.correct_answer);
 
         return {
           question: q.question,
-          options,
-          answer: randomIndex,
+          options: opts,
+          answer: rand,
         };
       });
 
       setQuestions(formatted);
-      setStep(0);
-      setScore(0);
-      setPicked(null);
       setLoading(false);
     }
 
-    loadQuestions();
-  }, [category, difficultyFromUrl]);
+    load();
+  }, [category, difficulty]);
 
-  // ----------------------------------------------------
-  // REDIRECT TO FEEDBACK WHEN QUIZ ENDS
-  // ----------------------------------------------------
-  useEffect(() => {
-    if (questions.length > 0 && step === questions.length) {
-      router.push("/feedback"); // <-- redirect works 100% now
-    }
-  }, [step, questions.length, router]);
+  if (loading) return <div className="quiz-container">Loading…</div>;
+  if (!questions.length) return <div>No questions found</div>;
+  if (step === questions.length) router.push("/feedback");
 
-  // ----------------------------------------------------
-  // NEXT QUESTION
-  // ----------------------------------------------------
-  function next() {
-    if (picked === questions[step].answer) {
-      setScore((s) => s + 1);
-    }
-    setPicked(null);
-    setStep((s) => s + 1);
-  }
-
-  // ----------------------------------------------------
-  // LOADING SCREEN
-  // ----------------------------------------------------
-  if (loading) {
-    return <div className="quiz-container">Loading…</div>;
-  }
-
-  // ----------------------------------------------------
-  // NO QUESTIONS FOUND
-  // ----------------------------------------------------
-  if (!loading && questions.length === 0) {
-    return (
-      <div className="quiz-container">
-        <h2>No questions found</h2>
-        <p>
-          URL tried: <code>/quiz/{category}?difficulty={difficultyFromUrl}</code>
-        </p>
-      </div>
-    );
-  }
-
-  // ----------------------------------------------------
-  // MAIN QUIZ UI
-  // ----------------------------------------------------
   return (
     <div className="quiz-container">
-      <h2
-        className="question-text"
-        dangerouslySetInnerHTML={{ __html: questions[step].question }}
-      />
+      <h2 dangerouslySetInnerHTML={{ __html: questions[step].question }} />
 
-      {/* OPTIONS */}
-      {questions[step].options.map((op, index) => (
+      {questions[step].options.map((op, i) => (
         <button
-          key={index}
-          className={`option-btn ${picked === index ? "selected" : ""}`}
-          onClick={() => setPicked(index)}
+          key={i}
+          className={picked === i ? "selected option-btn" : "option-btn"}
+          onClick={() => setPicked(i)}
           dangerouslySetInnerHTML={{ __html: op }}
         />
       ))}
 
-      <button
-        disabled={picked === null}
-        className="next-btn"
-        onClick={next}
-      >
+      <button disabled={picked === null} onClick={() => setStep(step + 1)}>
         Next
       </button>
-
-      {/* PROGRESS */}
-      <div className="progress">
-        <div
-          className="bar"
-          style={{
-            width: `${(step / questions.length) * 100}%`,
-          }}
-        ></div>
-      </div>
     </div>
   );
 }
