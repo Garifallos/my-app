@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 
 interface Question {
@@ -10,24 +10,23 @@ interface Question {
 }
 
 export default function QuizPage() {
-  // ---------------- ROUTER ----------------
   const router = useRouter();
 
-  // ---------------- ROUTE PARAMS ----------------
-  const params = useParams<{ category: string }>();
-  const category = params.category;
+  // URL params
+  const params = useParams();
+  const category = params.category as string;
 
   const searchParams = useSearchParams();
   const difficulty = searchParams.get("difficulty") || "";
 
-  // ---------------- STATE ----------------
+  // State
   const [questions, setQuestions] = useState<Question[]>([]);
   const [step, setStep] = useState(0);
-  const [picked, setPicked] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
   const [score, setScore] = useState(0);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // ---------------- LOAD QUESTIONS ----------------
+  // Load questions when URL changes
   useEffect(() => {
     async function loadQuestions() {
       if (!category) return;
@@ -65,50 +64,46 @@ export default function QuizPage() {
     loadQuestions();
   }, [category, difficulty]);
 
-  // ---------------- NEXT QUESTION ----------------
+  // Move to next question
   function next() {
     if (picked === questions[step].answer) {
       setScore((s) => s + 1);
     }
-
     setPicked(null);
     setStep((s) => s + 1);
   }
 
-  // ---------------- AUTO REDIRECT WHEN FINISHED ----------------
-  useEffect(() => {
-    if (questions.length > 0 && step === questions.length) {
-      router.push("/feedback");
-    }
-  }, [step, questions.length, router]);
+  // Loading state
+  if (loading) return <div className="quiz-container">Loading…</div>;
 
-  // ---------------- UI STATES ----------------
-  if (loading) {
-    return <div className="quiz-container">Loading…</div>;
-  }
-
+  // No questions returned
   if (questions.length === 0) {
     return (
       <div className="quiz-container">
         <h2>No questions found.</h2>
-        <p>Try a different category or difficulty.</p>
       </div>
     );
   }
 
-  // IMPORTANT: DO NOT RENDER QUIZ AFTER FINISH
-  if (step === questions.length) return null;
+  // QUIZ FINISHED → redirect to feedback
+  if (step === questions.length) {
+    router.push("/feedback");
+    return null; // avoid UI crash
+  }
 
-  // ---------------- MAIN UI ----------------
+  // MAIN UI
   return (
     <div className="quiz-container">
-      {/* QUESTION */}
       <h2
         className="question-text"
         dangerouslySetInnerHTML={{ __html: questions[step].question }}
       />
 
-      {/* OPTIONS */}
+      <p style={{ opacity: 0.7, fontSize: 14 }}>
+        Category: <strong>{category}</strong> | Difficulty:{" "}
+        <strong>{difficulty || "any"}</strong>
+      </p>
+
       {questions[step].options.map((op, index) => (
         <button
           key={index}
@@ -118,21 +113,15 @@ export default function QuizPage() {
         />
       ))}
 
-      {/* NEXT BUTTON */}
-      <button
-        disabled={picked === null}
-        className="next-btn"
-        onClick={next}
-      >
+      <button className="next-btn" disabled={picked === null} onClick={next}>
         Next
       </button>
 
-      {/* PROGRESS BAR */}
       <div className="progress">
         <div
           className="bar"
           style={{ width: `${(step / questions.length) * 100}%` }}
-        />
+        ></div>
       </div>
     </div>
   );
