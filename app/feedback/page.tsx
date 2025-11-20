@@ -8,7 +8,7 @@ export default function FeedbackPage() {
   const [rating, setRating] = useState(0);
   const [text, setText] = useState("");
 
-  function submitFeedback(e) {
+ function submitFeedback(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
     // Save feedback somewhere if you want
