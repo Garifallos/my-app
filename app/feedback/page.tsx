@@ -1,54 +1,111 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 
-export default function FeedbackPage() {
+import { useEffect, useState } from "react";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
+
+interface Question {
+  question: string;
+  options: string[];
+  answer: number;
+}
+
+export default function CategoryQuiz() {
   const router = useRouter();
 
-  const [rating, setRating] = useState(0);
-  const [text, setText] = useState("");
+  const params = useParams<{ category: string }>();
+  const searchParams = useSearchParams();
 
- function submitFeedback(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  const category = params.category;
+  const difficulty = searchParams.get("difficulty") || "";
 
-    // Save feedback somewhere if you want
-    console.log("Rating:", rating);
-    console.log("Feedback:", text);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [step, setStep] = useState(0);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [score, setScore] = useState(0);
 
-    // Restart quiz
-    router.push("/?reset=1");
+  // LOAD QUESTIONS
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+
+      let url = `https://opentdb.com/api.php?amount=5&category=${category}&type=multiple`;
+      if (difficulty) url += `&difficulty=${difficulty}`;
+
+      const res = await fetch(url);
+      const data = await res.json();
+
+      const formatted = data.results.map((q: any) => {
+        const options = [...q.incorrect_answers];
+        const randomIndex = Math.floor(Math.random() * (options.length + 1));
+        options.splice(randomIndex, 0, q.correct_answer);
+
+        return {
+          question: q.question,
+          options,
+          answer: randomIndex,
+        };
+      });
+
+      setQuestions(formatted);
+      setLoading(false);
+      setStep(0);
+      setPicked(null);
+      setScore(0);
+    }
+
+    load();
+  }, [category, difficulty]);
+
+  // NEXT
+  function next() {
+    if (picked === questions[step].answer) setScore((s) => s + 1);
+
+    setPicked(null);
+    setStep((s) => s + 1);
   }
+
+  // REDIRECT TO FEEDBACK
+  useEffect(() => {
+    if (questions.length > 0 && step === questions.length) {
+      router.push("/feedback");
+    }
+  }, [step, questions.length, router]);
+
+  // UI STATES
+  if (loading) return <div className="quiz-container">Loading…</div>;
+
+  if (questions.length === 0)
+    return <div className="quiz-container">No questions</div>;
+
+  if (step === questions.length) return null; // avoid render flashing
 
   return (
     <div className="quiz-container">
-      <h1>Project Feedback</h1>
+      <h2
+        className="question-text"
+        dangerouslySetInnerHTML={{ __html: questions[step].question }}
+      />
 
-      <form onSubmit={submitFeedback}>
-        <label>Rate the Quiz</label>
+      {questions[step].options.map((op, i) => (
+        <button
+          key={i}
+          className={`option-btn ${picked === i ? "selected" : ""}`}
+          onClick={() => setPicked(i)}
+          dangerouslySetInnerHTML={{ __html: op }}
+        />
+      ))}
 
-        <div className="stars">
-          {[1,2,3,4,5].map((num) => (
-            <span
-              key={num}
-              className={`star ${rating >= num ? "active" : ""}`}
-              onClick={() => setRating(num)}
-            >
-              ⭐
-            </span>
-          ))}
-        </div>
+      <button disabled={picked === null} className="next-btn" onClick={next}>
+        Next
+      </button>
 
-        <textarea
-          className="feedback-text"
-          placeholder="Leave your feedback..."
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        ></textarea>
-
-        <button className="next-btn" type="submit">
-          Αποστολή
-        </button>
-      </form>
+      <div className="progress">
+        <div
+          className="bar"
+          style={{ width: `${(step / questions.length) * 100}%` }}
+        />
+      </div>
     </div>
   );
 }
