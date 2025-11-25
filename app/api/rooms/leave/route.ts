@@ -1,19 +1,39 @@
-// app/api/rooms/leave/route.ts
+// app/api/rooms/store.ts
 
-import { NextRequest, NextResponse } from "next/server";
-import { leaveRoom } from "../store";
+export type RoomData = {
+  players: number;
+  started: boolean;
+  scores: {
+    host?: number;
+    guest?: number;
+  };
+};
 
-export async function POST(req: NextRequest) {
-  const { room } = await req.json().catch(() => ({ room: null }));
+export const rooms = new Map<string, RoomData>();
 
-  if (!room) {
-    return NextResponse.json(
-      { ok: false, reason: "Missing room code" },
-      { status: 400 }
-    );
+// ---------------------------
+// REMOVE GUEST (leave)
+// ---------------------------
+export function leaveRoom(code: string) {
+  const room = rooms.get(code);
+  if (!room) return;
+
+  if (room.players > 0) {
+    room.players -= 1;
   }
 
-  leaveRoom(room);
+  // Αν δεν υπάρχει πια κανείς και δεν έχει ξεκινήσει → delete
+  if (room.players === 0 && !room.started) {
+    rooms.delete(code);
+    return;
+  }
 
-  return NextResponse.json({ ok: true });
+  rooms.set(code, room);
+}
+
+// ---------------------------
+// DELETE ROOM (end of quiz)
+// ---------------------------
+export function deleteRoom(code: string) {
+  rooms.delete(code);
 }
