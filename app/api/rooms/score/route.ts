@@ -20,18 +20,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Ensure scores object exists
     room.scores = room.scores || {};
 
-    // Strict typing fix → ONLY allow host or guest
-    if (player === "host" || player === "guest") {
-      room.scores[player] = score;
-    } else {
+    // Strict check
+    if (player !== "host" && player !== "guest") {
       return NextResponse.json(
         { ok: false, error: "Invalid player type" },
         { status: 400 }
       );
     }
+
+    // 🔥 Type-correct assignment
+    room.scores[player as "host" | "guest"] = score;
 
     rooms.set(code, room);
 
