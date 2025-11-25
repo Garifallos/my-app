@@ -1,3 +1,4 @@
+// lib/pusher-client.ts
 import Pusher from "pusher-js";
 
 export const pusherClient = new Pusher(
