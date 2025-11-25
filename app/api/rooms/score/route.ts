@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { rooms, RoomData } from "../store";
+import { rooms } from "../store";
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,36 +20,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Save score
+    // Ensure scores object exists
     room.scores = room.scores || {};
-    room.scores[player] = score;
+
+    // Strict typing fix → ONLY allow host or guest
+    if (player === "host" || player === "guest") {
+      room.scores[player] = score;
+    } else {
+      return NextResponse.json(
+        { ok: false, error: "Invalid player type" },
+        { status: 400 }
+      );
+    }
 
     rooms.set(code, room);
 
-    const hostScore = room.scores.host;
-    const guestScore = room.scores.guest;
-
-    // If both players have submitted a score
-    if (hostScore !== undefined && guestScore !== undefined) {
-      let result = "draw";
-
-      if (hostScore > guestScore) result = "host";
-      else if (guestScore > hostScore) result = "guest";
-
-      return NextResponse.json({
-        ok: true,
-        finished: true,
-        result,
-        scores: room.scores,
-      });
-    }
-
-    // Still waiting for the other player
-    return NextResponse.json({
-      ok: true,
-      finished: false,
-      scores: room.scores,
-    });
+    return NextResponse.json({ ok: true, scores: room.scores });
   } catch (err) {
     console.error(err);
     return NextResponse.json(
