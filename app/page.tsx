@@ -3,19 +3,19 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-export default function Page() {
+export default function HomePage() {
   const router = useRouter();
 
-  // State
-  const [theme, setTheme] = useState("light");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
   const [categories, setCategories] = useState<any[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [difficulty, setDifficulty] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("");
+  const [difficulty, setDifficulty] = useState<string>("");
 
-  // LOAD THEME (από localStorage)
+  // Φόρτωση theme από localStorage
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const saved = localStorage.getItem("theme");
-    const initial = saved ? saved : "light";
+    const initial = (saved as "light" | "dark") || "light";
     setTheme(initial);
     document.body.classList.toggle("dark", initial === "dark");
   }, []);
@@ -23,33 +23,44 @@ export default function Page() {
   function toggleTheme() {
     const newTheme = theme === "light" ? "dark" : "light";
     setTheme(newTheme);
-    localStorage.setItem("theme", newTheme);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("theme", newTheme);
+    }
     document.body.classList.toggle("dark", newTheme === "dark");
   }
 
-  // LOAD OPEN TRIVIA CATEGORIES
+  // Φόρτωση κατηγοριών από OpenTDB
   useEffect(() => {
     async function loadCats() {
-      const res = await fetch("https://opentdb.com/api_category.php");
-      const data = await res.json();
-      setCategories(data.trivia_categories); // [ {id,name}, ... ]
+      try {
+        const res = await fetch("https://opentdb.com/api_category.php");
+        const data = await res.json();
+        setCategories(data.trivia_categories || []);
+      } catch (e) {
+        console.error("Failed to load categories", e);
+      }
     }
     loadCats();
   }, []);
 
-  // Start quiz → dynamic route
+  // 1-player start
   function startQuiz() {
     if (!selectedCategory) return;
 
-    const cat = selectedCategory;
-    const diff = difficulty ? `?difficulty=${difficulty}` : "";
+    const params = new URLSearchParams();
+    if (difficulty) params.set("difficulty", difficulty);
 
-    router.push(`/quiz/${cat}${diff}`);
+    const query = params.toString();
+    router.push(`/quiz/${selectedCategory}${query ? `?${query}` : ""}`);
+  }
+
+  // 2-player mode
+  function goToTwoPlayer() {
+    router.push("/2player");
   }
 
   return (
     <div className="quiz-container">
-
       {/* Theme Switch */}
       <div
         className={`theme-switch ${theme === "dark" ? "dark" : ""}`}
@@ -62,10 +73,20 @@ export default function Page() {
 
       <h1>Start Your Quiz</h1>
 
+      {/* 2 Player Mode button */}
+      <button
+        className="next-btn"
+        style={{ marginBottom: 20, marginTop: 10 }}
+        onClick={goToTwoPlayer}
+      >
+        2 Player Mode
+      </button>
+
       {/* Difficulty */}
       <h2>Difficulty</h2>
       <select
         className="select-glass"
+        value={difficulty}
         onChange={(e) => setDifficulty(e.target.value)}
       >
         <option value="">Choose difficulty...</option>
@@ -78,6 +99,7 @@ export default function Page() {
       <h2>Select Category</h2>
       <select
         className="select-glass"
+        value={selectedCategory}
         onChange={(e) => setSelectedCategory(e.target.value)}
       >
         <option value="">Choose...</option>
@@ -92,11 +114,11 @@ export default function Page() {
       <button
         disabled={!selectedCategory}
         className="next-btn"
+        style={{ marginTop: 20 }}
         onClick={startQuiz}
       >
         Start Quiz
       </button>
-
     </div>
   );
 }
