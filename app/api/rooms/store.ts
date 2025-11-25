@@ -11,22 +11,29 @@ export type RoomData = {
 
 export const rooms = new Map<string, RoomData>();
 
-// ΝΕΟ: remove guest or reset room
+// ---------------------------
+// REMOVE GUEST (leave)
+// ---------------------------
 export function leaveRoom(code: string) {
   const room = rooms.get(code);
-
   if (!room) return;
 
-  // Αν υπάρχει guest → τον βγάζουμε
   if (room.players > 0) {
     room.players -= 1;
   }
 
-  // Αν δεν υπάρχει πλέον κανείς → σβήσε το room
+  // Αν δεν υπάρχει κανένας πια → delete room
   if (room.players === 0 && !room.started) {
     rooms.delete(code);
     return;
   }
 
   rooms.set(code, room);
+}
+
+// ---------------------------
+// DELETE ROOM (end of quiz)
+// ---------------------------
+export function deleteRoom(code: string) {
+  rooms.delete(code);
 }
