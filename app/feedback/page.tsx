@@ -1,9 +1,9 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
-export default function FeedbackPage() {
+function FeedbackContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -24,10 +24,6 @@ export default function FeedbackPage() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-
-    console.log("Rating:", rating);
-    console.log("Feedback:", feedback);
-
     alert("Thank you for your feedback!");
     router.push("/");
   }
@@ -38,9 +34,6 @@ export default function FeedbackPage() {
     <div className="quiz-container">
       <h1>Quiz Feedback</h1>
 
-      {/* ============================= */}
-      {/*        WINNER SECTION        */}
-      {/* ============================= */}
       {winner && (
         <div
           style={{
@@ -73,7 +66,6 @@ export default function FeedbackPage() {
         </div>
       )}
 
-      {/* Optional winner button */}
       {winner && (
         <button
           className="next-btn"
@@ -92,9 +84,6 @@ export default function FeedbackPage() {
         </button>
       )}
 
-      {/* =============================== */}
-      {/*       QUIZ DETAILS SECTION      */}
-      {/* =============================== */}
       <p style={{ opacity: 0.8, marginBottom: 10 }}>
         Category: <strong>{category || "N/A"}</strong>
       </p>
@@ -111,9 +100,6 @@ export default function FeedbackPage() {
         </p>
       )}
 
-      {/* ============================= */}
-      {/*        STAR RATING SYSTEM    */}
-      {/* ============================= */}
       <div style={{ marginBottom: 25 }}>
         <p style={{ marginBottom: 8 }}>Rate this quiz:</p>
 
@@ -149,9 +135,6 @@ export default function FeedbackPage() {
         )}
       </div>
 
-      {/* ============================= */}
-      {/*         FEEDBACK TEXT         */}
-      {/* ============================= */}
       <form onSubmit={handleSubmit} style={{ width: "100%" }}>
         <textarea
           className="select-glass"
@@ -173,5 +156,13 @@ export default function FeedbackPage() {
         </button>
       </form>
     </div>
+  );
+}
+
+export default function FeedbackPage() {
+  return (
+    <Suspense fallback={<div className="quiz-container"><h1>Loading…</h1></div>}>
+      <FeedbackContent />
+    </Suspense>
   );
 }
