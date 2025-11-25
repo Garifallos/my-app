@@ -17,7 +17,8 @@ export async function POST(req: NextRequest) {
 
   // Αν δεν υπάρχει room → το δημιουργούμε
   if (!current) {
-    current = { players: 0, started: false };
+    current = { players: 0, started: false, scores: {} };
+
   }
 
   // Επιτρέπουμε μόνο 1 guest
