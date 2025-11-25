@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
   let current = rooms.get(room);
 
-  // Αν δεν υπάρχει → το δημιουργούμε σωστά
+  // Αν δεν υπάρχει room → ΤΟ ΦΤΙΑΧΝΟΥΜΕ ΜΕ scores
   if (!current) {
     current = {
       players: 0,
@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
   current.players += 1;
   rooms.set(room, current);
 
+  // ενημέρωση των clients
   await pusherServer.trigger(`room-${room}`, "players-update", {
     players: current.players
   });
