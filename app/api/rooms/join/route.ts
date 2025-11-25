@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
 
   let current = rooms.get(room);
 
-  // Αν δεν υπάρχει → το δημιουργούμε ΣΩΣΤΑ
+  // Αν δεν υπάρχει room → ΤΟ ΦΤΙΑΧΝΟΥΜΕ ΜΕ scores
   if (!current) {
     current = {
       players: 0,
