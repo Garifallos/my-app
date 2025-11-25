@@ -1,5 +1,5 @@
 // app/api/rooms/join/route.ts
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { rooms } from "../store";
 import { pusherServer } from "@/lib/pusher-server";
 
@@ -7,25 +7,28 @@ export async function POST(req: NextRequest) {
   const { room } = await req.json().catch(() => ({ room: null }));
 
   if (!room) {
-    return Response.json(
+    return NextResponse.json(
       { ok: false, reason: "Missing room code" },
-      { status: 200 }
+      { status: 400 }
     );
   }
 
   let current = rooms.get(room);
 
-  // Αν δεν υπάρχει room → το δημιουργούμε
+  // Αν δεν υπάρχει → το δημιουργούμε σωστά
   if (!current) {
-    current = { players: 0, started: false, scores: {} };
-
+    current = {
+      players: 0,
+      started: false,
+      scores: {}
+    };
   }
 
   // Επιτρέπουμε μόνο 1 guest
   if (current.players >= 1) {
-    return Response.json(
+    return NextResponse.json(
       { ok: false, reason: "Room is full", players: current.players },
-      { status: 200 }
+      { status: 400 }
     );
   }
 
@@ -33,10 +36,10 @@ export async function POST(req: NextRequest) {
   rooms.set(room, current);
 
   await pusherServer.trigger(`room-${room}`, "players-update", {
-    players: current.players,
+    players: current.players
   });
 
-  return Response.json(
+  return NextResponse.json(
     { ok: true, players: current.players },
     { status: 200 }
   );
