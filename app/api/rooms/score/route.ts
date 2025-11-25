@@ -20,24 +20,57 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Ensure scores object exists
     room.scores = room.scores || {};
 
-    // Strict check
-    if (player !== "host" && player !== "guest") {
+    // Save score
+    if (player === "host" || player === "guest") {
+      room.scores[player] = score;
+    } else {
       return NextResponse.json(
         { ok: false, error: "Invalid player type" },
         { status: 400 }
       );
     }
 
-    // 🔥 Type-correct assignment
-    room.scores[player as "host" | "guest"] = score;
-
     rooms.set(code, room);
 
-    return NextResponse.json({ ok: true, scores: room.scores });
+    // If both have played → calculate winner
+    const hostScore = room.scores.host;
+    const guestScore = room.scores.guest;
+
+    if (hostScore !== undefined && guestScore !== undefined) {
+      let result: "host" | "guest" | "draw";
+
+      if (hostScore > guestScore) result = "host";
+      else if (guestScore > hostScore) result = "guest";
+      else result = "draw";
+
+      return NextResponse.json(
+        {
+          ok: true,
+          finished: true,
+          result,
+          scores: {
+            host: hostScore,
+            guest: guestScore,
+          },
+        },
+        { status: 200 }
+      );
+    }
+
+    // Only one player finished → wait
+    return NextResponse.json(
+      {
+        ok: true,
+        finished: false,
+        scores: room.scores,
+      },
+      { status: 200 }
+    );
   } catch (err) {
-    console.error(err);
+    console.error("SCORE ROUTE ERROR:", err);
     return NextResponse.json(
       { ok: false, error: "Server error" },
       { status: 500 }

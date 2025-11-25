@@ -1,299 +1,335 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { pusherClient } from "@/lib/pusher-client";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams, useParams, useRouter } from "next/navigation";
 
-interface Question {
+type Question = {
   question: string;
-  options: string[];
-  answer: number;
+  correct_answer: string;
+  incorrect_answers: string[];
+};
+
+type AnswerOption = {
+  text: string;
+  isCorrect: boolean;
+};
+
+type Scores = {
+  host?: number;
+  guest?: number;
+};
+
+function shuffleArray<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
 }
 
-const fallbackQuestions: Question[] = [
-  {
-    question: "What is the capital of France?",
-    options: ["Paris", "London", "Berlin", "Rome"],
-    answer: 0,
-  },
-  {
-    question: "Which planet is known as the Red Planet?",
-    options: ["Earth", "Mars", "Jupiter", "Saturn"],
-    answer: 1,
-  },
-  {
-    question: "What does HTML stand for?",
-    options: [
-      "Hyper Text Markup Language",
-      "Home Tool Markup Language",
-      "Hyperlinks and Text Markup Language",
-      "Hyper Tool Multi Language",
-    ],
-    answer: 0,
-  },
-];
-
-export default function QuizPage() {
+export default function QuizCategoryPage() {
+  const searchParams = useSearchParams();
+  const params = useParams();
   const router = useRouter();
 
-  // URL params
-  const params = useParams();
   const category = params.category as string;
-
-  const searchParams = useSearchParams();
-  const difficulty = searchParams.get("difficulty") || "";
-
-  // Multiplayer flags
-  const isMultiplayer = searchParams.get("multiplayer") === "1";
+  const difficulty = searchParams.get("difficulty") ?? "";
+  const multiplayer = searchParams.get("multiplayer") === "1";
   const room = searchParams.get("room");
   const isHost = searchParams.get("host") === "1";
 
-  // State
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [step, setStep] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [isAnswered, setIsAnswered] = useState(false);
   const [score, setScore] = useState(0);
-  const [picked, setPicked] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  // ------------------------------------------------------------------------------
-  // MULTIPLAYER LISTENERS
-  // ------------------------------------------------------------------------------
+  const [showResults, setShowResults] = useState(false);
+
+  // multiplayer winner stuff
+  const [winner, setWinner] = useState<string | null>(null);
+  const [finalScores, setFinalScores] = useState<Scores | null>(null);
+
+  // ----------------------------------------
+  // Load questions
+  // ----------------------------------------
   useEffect(() => {
-    if (!isMultiplayer || !room) return;
-
-    const channelName = `room-${room}`;
-    const channel = pusherClient.subscribe(channelName);
-
-    channel.bind("questions-loaded", (data: any) => {
-      if (isHost) return;
-      const qs: Question[] = data.questions;
-      setQuestions(qs);
-      setStep(0);
-      setScore(0);
-      setPicked(null);
-      setLoading(false);
-    });
-
-    channel.bind("next-question", (data: any) => {
-      const nextStep = data.step as number;
-      setPicked(null);
-      setStep(nextStep);
-    });
-
-    channel.bind("end-game", () => {
-      router.push("/feedback");
-    });
-
-    return () => {
-      channel.unbind_all();
-      pusherClient.unsubscribe(channelName);
-    };
-  }, [isMultiplayer, room, isHost, router]);
-
-  // ------------------------------------------------------------------------------
-  // LOAD QUESTIONS
-  // ------------------------------------------------------------------------------
-  useEffect(() => {
-    async function loadQuestions() {
-      if (!category) return;
-
-      // Guest waits for host
-      if (isMultiplayer && !isHost) {
-        setLoading(true);
-        return;
-      }
-
-      setLoading(true);
-
+    async function load() {
       try {
-        let url = `https://opentdb.com/api.php?amount=5&category=${category}&type=multiple`;
-
-        if (difficulty) {
-          url += `&difficulty=${difficulty}`;
-        }
-
-        const res = await fetch(url);
-
-        // Rate limit fallback
-        if (res.status === 429) {
-          console.warn("Rate limited (429). Using fallback questions.");
-
-          const formatted = fallbackQuestions;
-
-          setQuestions(formatted);
-          setStep(0);
-          setScore(0);
-          setPicked(null);
-
-          if (isMultiplayer && isHost && room) {
-            await fetch("/api/quiz/init", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ room, questions: formatted }),
-            });
-          }
-
-          return;
-        }
-
-        if (!res.ok) {
-          console.error("Failed to fetch questions", res.status);
-          setQuestions([]);
-          return;
-        }
+        const res = await fetch("/api/questions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category, difficulty }),
+        });
 
         const data = await res.json();
 
-        if (!data.results || data.results.length === 0) {
-          console.error("Unexpected or empty API response:", data);
+        if (data.ok && Array.isArray(data.data)) {
+          setQuestions(data.data);
+        } else {
           setQuestions([]);
-          return;
-        }
-
-        const formatted: Question[] = data.results.map((q: any) => {
-          const options = [...q.incorrect_answers];
-          const randomIndex = Math.floor(
-            Math.random() * (options.length + 1)
-          );
-          options.splice(randomIndex, 0, q.correct_answer);
-
-          return {
-            question: q.question,
-            options,
-            answer: randomIndex,
-          };
-        });
-
-        setQuestions(formatted);
-        setStep(0);
-        setScore(0);
-        setPicked(null);
-
-        // Host sends questions to guest
-        if (isMultiplayer && isHost && room) {
-          await fetch("/api/quiz/init", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ room, questions: formatted }),
-          });
         }
       } catch (err) {
-        console.error("Error loading questions:", err);
+        console.error("Failed to load questions", err);
         setQuestions([]);
       } finally {
         setLoading(false);
       }
     }
 
-    loadQuestions();
-  }, [category, difficulty, isMultiplayer, isHost, room]);
+    load();
+  }, [category, difficulty]);
 
-  // ------------------------------------------------------------------------------
-  // NEXT QUESTION
-  // ------------------------------------------------------------------------------
-  async function next() {
-    if (picked === null) return;
+  const currentQuestion = questions[currentIndex];
 
-    if (picked === questions[step].answer) {
-      setScore((s) => s + 1);
+  const shuffledAnswers: AnswerOption[] = useMemo(() => {
+    if (!currentQuestion) return [];
+    return shuffleArray<AnswerOption>([
+      { text: currentQuestion.correct_answer, isCorrect: true },
+      ...currentQuestion.incorrect_answers.map((t) => ({
+        text: t,
+        isCorrect: false,
+      })),
+    ]);
+  }, [currentQuestion]);
+
+  // ----------------------------------------
+  // Handle answering
+  // ----------------------------------------
+  function handleAnswer(option: AnswerOption) {
+    if (isAnswered) return;
+
+    setSelectedAnswer(option.text);
+    setIsAnswered(true);
+
+    if (option.isCorrect) {
+      setScore((prev) => prev + 1);
     }
-
-    const nextStep = step + 1;
-
-    if (isMultiplayer && isHost && room) {
-      await fetch("/api/quiz/next", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room, step: nextStep }),
-      });
-    }
-
-    setPicked(null);
-    setStep(nextStep);
   }
 
-  // ------------------------------------------------------------------------------
-  // FINISH HANDLER (SAFE REDIRECT)
-  // ------------------------------------------------------------------------------
+  function nextQuestion() {
+    if (currentIndex + 1 < questions.length) {
+      setCurrentIndex((prev) => prev + 1);
+      setSelectedAnswer(null);
+      setIsAnswered(false);
+    } else {
+      setShowResults(true);
+    }
+  }
+
+  // ----------------------------------------
+  // MULTIPLAYER: Send score when finished
+  // ----------------------------------------
   useEffect(() => {
-    const finished =
-      !loading && questions.length > 0 && step === questions.length;
+    if (!showResults || !multiplayer) return;
+    if (!room) return;
 
-    if (!finished) return;
+    async function sendScore() {
+      const playerType = isHost ? "host" : "guest";
 
-    if (isMultiplayer && isHost && room) {
-      fetch("/api/quiz/end", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room }),
-      }).catch(() => {});
+      try {
+        const res = await fetch("/api/rooms/score", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            room,
+            player: playerType,
+            score,
+          }),
+        });
+
+        const data = await res.json();
+        console.log("score response:", data);
+
+        if (data.finished) {
+          setWinner(data.result);
+          setFinalScores(data.scores);
+        }
+      } catch (err) {
+        console.error("Failed to send score", err);
+      }
     }
 
-    router.push("/feedback");
-  }, [loading, questions.length, step, isMultiplayer, isHost, room, router]);
+    sendScore();
+  }, [showResults, multiplayer, room, score, isHost]);
 
-  // ------------------------------------------------------------------------------
-  // SAFETY BLOCKS (PREVENT RENDER CRASH)
-  // ------------------------------------------------------------------------------
-  if (loading) {
-    return <div className="quiz-container">Loading…</div>;
+  // ----------------------------------------
+  // Go to Feedback
+  // ----------------------------------------
+  function goToFeedback() {
+    if (!multiplayer) {
+      router.push(
+        `/feedback?category=${category}&difficulty=${difficulty}&score=${score}&total=${questions.length}`
+      );
+      return;
+    }
+
+    if (winner && finalScores) {
+      const hostScore = finalScores.host ?? 0;
+      const guestScore = finalScores.guest ?? 0;
+
+      router.push(
+        `/feedback?winner=${winner}&hostScore=${hostScore}&guestScore=${guestScore}&category=${category}&difficulty=${difficulty}`
+      );
+    }
   }
 
-  if (questions.length === 0) {
+  // ----------------------------------------
+  // Loading
+  // ----------------------------------------
+  if (loading) {
     return (
       <div className="quiz-container">
-        <h2>No questions found.</h2>
+        <h1>Loading questions...</h1>
       </div>
     );
   }
 
-  if (step < 0 || step >= questions.length) {
-    return <div className="quiz-container">Finishing...</div>;
+  if (!currentQuestion && !showResults) {
+    return (
+      <div className="quiz-container">
+        <h1>No questions found</h1>
+      </div>
+    );
   }
 
-  // ------------------------------------------------------------------------------
-  // MAIN UI
-  // ------------------------------------------------------------------------------
-  return (
-    <div className="quiz-container">
-      <h2
-        className="question-text"
-        dangerouslySetInnerHTML={{ __html: questions[step].question }}
-      />
+  // ----------------------------------------
+  // RESULTS SCREEN
+  // ----------------------------------------
+  if (showResults) {
+    const waiting = multiplayer && !winner;
 
-      <p style={{ opacity: 0.7, fontSize: 14 }}>
-        Category: <strong>{category}</strong> | Difficulty:{" "}
-        <strong>{difficulty || "any"}</strong>{" "}
-        {isMultiplayer && (
+    return (
+      <div className="quiz-container">
+        <h1>Game Over!</h1>
+
+        {!multiplayer && (
+          <p>
+            Your score: {score} / {questions.length}
+          </p>
+        )}
+
+        {multiplayer && (
           <>
-            | Mode: <strong>{isHost ? "Host" : "Guest"}</strong>
+            <p>Your score: {score}</p>
+
+            {!winner && (
+              <p style={{ marginTop: 10, opacity: 0.8 }}>
+                Waiting for the other player to finish...
+              </p>
+            )}
+
+            {winner && finalScores && (
+              <div style={{ marginTop: 20 }}>
+                {winner === "draw" && <h2>Draw! 🤝</h2>}
+                {winner === "host" && (
+                  <h2>
+                    Winner: HOST {isHost && "(You)"} 🎉
+                  </h2>
+                )}
+                {winner === "guest" && (
+                  <h2>
+                    Winner: GUEST {!isHost && "(You)"} 🎉
+                  </h2>
+                )}
+
+                <p style={{ marginTop: 10 }}>
+                  Host score: {finalScores.host ?? 0}
+                </p>
+                <p>Guest score: {finalScores.guest ?? 0}</p>
+              </div>
+            )}
           </>
         )}
-      </p>
 
-      {questions[step].options.map((op, index) => (
         <button
-          key={index}
-          className={`option-btn ${picked === index ? "selected" : ""}`}
-          onClick={() => setPicked(index)}
-          dangerouslySetInnerHTML={{ __html: op }}
-        />
-      ))}
+          className="next-btn"
+          style={{ marginTop: 30, opacity: waiting ? 0.5 : 1 }}
+          disabled={waiting}
+          onClick={goToFeedback}
+        >
+          {waiting ? "Waiting for opponent..." : "Go to Feedback"}
+        </button>
 
-      <button
-        className="next-btn"
-        disabled={picked === null || (isMultiplayer && !isHost)}
-        onClick={next}
-      >
-        {isMultiplayer && !isHost ? "Waiting for host..." : "Next"}
-      </button>
-
-      <div className="progress">
-        <div
-          className="bar"
-          style={{ width: `${(step / questions.length) * 100}%` }}
-        ></div>
+        <button
+          className="next-btn"
+          style={{ marginTop: 10, background: "rgba(255,255,255,0.1)" }}
+          onClick={() => router.push("/")}
+        >
+          Back to Home
+        </button>
       </div>
+    );
+  }
+
+  // ----------------------------------------
+  // MAIN QUIZ UI
+  // ----------------------------------------
+  return (
+    <div className="quiz-container">
+      <h1>Quiz</h1>
+
+      {multiplayer && (
+        <div style={{ opacity: 0.7, marginBottom: 10 }}>
+          <p>Room: {room}</p>
+          <p>{isHost ? "You are the HOST" : "You are the GUEST"}</p>
+        </div>
+      )}
+
+      <h3>
+        Question {currentIndex + 1} / {questions.length}
+      </h3>
+
+      <div
+        style={{
+          marginBottom: 20,
+          padding: 20,
+          borderRadius: 10,
+          background: "rgba(0,0,0,0.1)",
+        }}
+        dangerouslySetInnerHTML={{ __html: currentQuestion.question }}
+      />
+
+      <div style={{ display: "grid", gap: 10 }}>
+        {shuffledAnswers.map((option) => {
+          const selected = selectedAnswer === option.text;
+          const correct = option.isCorrect;
+
+          let bg = "rgba(255,255,255,0.1)";
+
+          if (isAnswered) {
+            if (correct) bg = "rgba(0,200,0,0.4)";
+            else if (selected) bg = "rgba(200,0,0,0.4)";
+          } else if (selected) {
+            bg = "rgba(255,255,255,0.3)";
+          }
+
+          return (
+            <button
+              key={option.text}
+              className="next-btn"
+              style={{ background: bg }}
+              onClick={() => handleAnswer(option)}
+              dangerouslySetInnerHTML={{ __html: option.text }}
+            />
+          );
+        })}
+      </div>
+
+      {isAnswered && (
+        <button
+          className="next-btn"
+          style={{ marginTop: 20 }}
+          onClick={nextQuestion}
+        >
+          {currentIndex + 1 === questions.length ? "Show Results" : "Next Question"}
+        </button>
+      )}
+
+      <p style={{ marginTop: 20 }}>Score: {score}</p>
     </div>
   );
 }
