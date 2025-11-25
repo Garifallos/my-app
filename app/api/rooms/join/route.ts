@@ -1,4 +1,3 @@
-// app/api/rooms/join/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { rooms } from "../store";
 import { pusherServer } from "@/lib/pusher-server";
@@ -15,7 +14,7 @@ export async function POST(req: NextRequest) {
 
   let current = rooms.get(room);
 
-  // Αν δεν υπάρχει room → ΤΟ ΦΤΙΑΧΝΟΥΜΕ ΜΕ scores
+  // Αν δεν υπάρχει → το δημιουργούμε ΣΩΣΤΑ
   if (!current) {
     current = {
       players: 0,
@@ -35,7 +34,6 @@ export async function POST(req: NextRequest) {
   current.players += 1;
   rooms.set(room, current);
 
-  // ενημέρωση των clients
   await pusherServer.trigger(`room-${room}`, "players-update", {
     players: current.players
   });
