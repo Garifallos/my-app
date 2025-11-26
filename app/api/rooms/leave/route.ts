@@ -1,19 +1,21 @@
-// app/api/rooms/leave/route.ts
-
-import { NextRequest, NextResponse } from "next/server";
-import { leaveRoom } from "../store";
+import { NextRequest } from "next/server";
+import { rooms } from "@/lib/rooms";
+import { pusherServer } from "@/lib/pusher-server";
 
 export async function POST(req: NextRequest) {
-  const { room } = await req.json().catch(() => ({ room: null }));
+  const { code } = await req.json();
 
-  if (!room) {
-    return NextResponse.json(
-      { ok: false, reason: "Missing room code" },
-      { status: 400 }
-    );
-  }
+  if (!code) return Response.json({ ok: false });
 
-  leaveRoom(room);
+  const data = rooms.get(code);
+  if (!data) return Response.json({ ok: true });
 
-  return NextResponse.json({ ok: true });
+  data.players = Math.max(0, data.players - 1);
+  rooms.set(code, data);
+
+  await pusherServer.trigger(`room-${code}`, "players-update", {
+    players: data.players,
+  });
+
+  return Response.json({ ok: true });
 }
