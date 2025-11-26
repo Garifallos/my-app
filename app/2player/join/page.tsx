@@ -9,7 +9,7 @@ export default function JoinRoomPage() {
 
   function joinRoom() {
     if (code.length === 4) {
-      router.push(`/2player/room/${code}`);
+      router.push(`/2player/room/${code}?host=0`);
     }
   }
 
@@ -40,4 +40,3 @@ export default function JoinRoomPage() {
     </div>
   );
 }
-
