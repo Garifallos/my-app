@@ -132,15 +132,15 @@ export default function QuizCategoryPage() {
       const playerType: "host" | "guest" = isHost ? "host" : "guest";
 
       try {
-        const res = await fetch("/api/rooms/score", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            room,
-            player: playerType,
-            score,
-          }),
-        });
+       const res = await fetch("/api/questions", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    category: Number(category) || null,      // ΠΟΛΥ ΣΗΜΑΝΤΙΚΟ
+    difficulty: difficulty || null           // "" → null
+  }),
+});
+
 
         const data = await res.json();
         console.log("Score response:", data);
