@@ -1,55 +1,41 @@
-import { NextRequest, NextResponse } from "next/server";
-import { rooms } from "../store";
+import { NextRequest } from "next/server";
+import { rooms } from "@/lib/rooms";
 import { pusherServer } from "@/lib/pusher-server";
 
 export async function POST(req: NextRequest) {
-  try {
-    const text = await req.text();
-    let body: any;
+  const { room } = await req.json();   // ⬅️ ΔΙΟΡΘΩΘΗΚΕ
 
-    try {
-      body = JSON.parse(text);
-    } catch {
-      return NextResponse.json(
-        { ok: false, reason: "Invalid JSON" },
-        { status: 400 }
-      );
-    }
-
-    const room = body.room;
-    if (!room) {
-      return NextResponse.json(
-        { ok: false, reason: "Missing room" },
-        { status: 400 }
-      );
-    }
-
-    let current = rooms.get(room);
-
-    if (!current) {
-      current = { players: 0, started: false, scores: {} };
-    }
-
-    if (current.players >= 1) {
-      return NextResponse.json(
-        { ok: false, reason: "Room is full" },
-        { status: 200 }
-      );
-    }
-
-    current.players += 1;
-    rooms.set(room, current);
-
-    await pusherServer.trigger(`room-${room}`, "players-update", {
-      players: current.players,
-    });
-
-    return NextResponse.json({ ok: true, players: current.players });
-  } catch (err) {
-    console.error("JOIN ROUTE ERROR:", err);
-    return NextResponse.json(
-      { ok: false, reason: "Server error" },
-      { status: 500 }
+  if (!room) {
+    return Response.json(
+      { ok: false, reason: "Missing room" },
+      { status: 400 }
     );
   }
+
+  // get existing or create new room
+  let data = rooms.get(room);
+  if (!data) {
+    data = { players: 0 };
+  }
+
+  // allow ONLY 1 guest (host + guest)
+  if (data.players >= 1) {
+    return Response.json(
+      { ok: false, reason: "Room is full", players: data.players },
+      { status: 400 }
+    );
+  }
+
+  data.players += 1;
+  rooms.set(room, data);
+
+  // notify host of player join
+  await pusherServer.trigger(`room-${room}`, "players-update", {
+    players: data.players,
+  });
+
+  return Response.json({
+    ok: true,
+    players: data.players,
+  });
 }
