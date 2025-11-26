@@ -4,6 +4,14 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { pusherClient } from "@/lib/pusher-client";
 
+type PlayersUpdatePayload = {
+  players: number;
+};
+
+type StartGamePayload = {
+  url: string;
+};
+
 export default function RoomPage() {
   const router = useRouter();
   const params = useParams();
@@ -12,18 +20,20 @@ export default function RoomPage() {
   const code = params.code as string;
   const isHost = searchParams.get("host") === "1";
 
+  // guests = πόσοι guests (όχι ο host)
   const [guests, setGuests] = useState(0);
-  const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // -----------------------------
-  // JOIN (ONLY GUEST)
-  // -----------------------------
+  // ---------------------------------------------------
+  // JOIN: ΜΟΝΟ Ο GUEST ΚΑΝΕΙ /api/rooms/join
+  // ---------------------------------------------------
   useEffect(() => {
-    let active = true;
+    let cancelled = false;
 
-    async function join() {
+    async function joinAsGuest() {
       if (isHost) {
+        // ο host δεν καλεί /join, θεωρείται ήδη μέσα
         setJoining(false);
         return;
       }
@@ -37,81 +47,100 @@ export default function RoomPage() {
 
         const data = await res.json();
 
-        if (!data.ok) {
-          if (active) setError(data.reason || "Join failed");
-        } else {
-          if (active) setGuests(data.players);
+        if (!res.ok || !data.ok) {
+          if (!cancelled) {
+            setError(data.reason || "Failed to join room");
+          }
+          return;
         }
-      } catch {
-        if (active) setError("Join error");
+
+        if (!cancelled) {
+          // data.players = πόσοι guests
+          setGuests(data.players ?? 1);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError("Network error while joining room");
+        }
       } finally {
-        if (active) setJoining(false);
+        if (!cancelled) {
+          setJoining(false);
+        }
       }
     }
 
-    join();
+    joinAsGuest();
+
     return () => {
-      active = false;
+      cancelled = true;
     };
   }, [code, isHost]);
 
-  // -----------------------------
-  // PUSHER EVENTS
-  // -----------------------------
+  // ---------------------------------------------------
+  // PUSHER: players-update & start-game
+  // ---------------------------------------------------
   useEffect(() => {
-    const channel = pusherClient.subscribe(`room-${code}`);
+    const channelName = `room-${code}`;
+    const channel = pusherClient.subscribe(channelName);
 
-    channel.bind("players-update", (data: any) => {
-      setGuests(data.players);
-    });
+    const handlePlayersUpdate = (data: PlayersUpdatePayload) => {
+      setGuests(data.players ?? 0);
+    };
 
-    channel.bind("start-game", (data: any) => {
-      if (data?.url) router.push(data.url);
-    });
+    const handleStartGame = (data: StartGamePayload) => {
+      if (data?.url) {
+        router.replace(data.url);
+      }
+    };
+
+    channel.bind("players-update", handlePlayersUpdate);
+    channel.bind("start-game", handleStartGame);
 
     return () => {
-      channel.unbind_all();
-      pusherClient.unsubscribe(`room-${code}`);
+      channel.unbind("players-update", handlePlayersUpdate);
+      channel.unbind("start-game", handleStartGame);
+      pusherClient.unsubscribe(channelName);
     };
   }, [code, router]);
 
-  // -----------------------------
+  // ---------------------------------------------------
   // START GAME (HOST ONLY)
-  // -----------------------------
- async function startGame() {
-  const category = 9;
-  const difficulty = "";
+  // ---------------------------------------------------
+  async function startGame() {
+    if (!isHost) return;
+    if (guests < 1) return; // πρέπει να υπάρχει guest
 
-  const hostUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=1&difficulty=${difficulty}`;
-  const guestUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=0&difficulty=${difficulty}`;
+    const category = 9; // General Knowledge
+    const difficulty = ""; // μπορείς αργότερα να το κάνεις param
 
-  // 1️⃣ πες στο Next.js να ετοιμάσει ΤΩΡΑ τη σελίδα hostUrl
-  router.prefetch(hostUrl);
+    const hostUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=1&difficulty=${difficulty}`;
+    const guestUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=0&difficulty=${difficulty}`;
 
-  // 2️⃣ send event to guest
-  await fetch("/api/rooms/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ room: code, url: guestUrl }),
-  });
+    try {
+      // ενημερώνουμε τον guest μέσω Pusher
+      await fetch("/api/rooms/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room: code, url: guestUrl }),
+      });
+    } catch (err) {
+      console.error("Failed to start game", err);
+    }
 
-  // 3️⃣ μικρή καθυστέρηση για να «σταθεροποιηθεί» το URL
-  await new Promise((resolve) => setTimeout(resolve, 120));
+    // και μετά πάει ο host στο quiz
+    router.replace(hostUrl);
+  }
 
-  // 4️⃣ τώρα push (ή replace)
-  router.replace(hostUrl);
-}
+  const totalPlayers = 1 + guests; // 1 host + guests
 
-  const totalPlayers = 1 + guests;
-
-  // -----------------------------
-  // UI
-  // -----------------------------
+  // ---------------------------------------------------
+  // UI STATES
+  // ---------------------------------------------------
   if (joining) {
     return (
       <div className="quiz-container">
         <h1>Room {code}</h1>
-        <p>Joining...</p>
+        <p>Joining…</p>
       </div>
     );
   }
@@ -125,32 +154,45 @@ export default function RoomPage() {
     );
   }
 
+  // ---------------------------------------------------
+  // MAIN ROOM UI
+  // ---------------------------------------------------
   return (
     <div className="quiz-container">
       <h1>Room code: {code}</h1>
 
       <p>Players: {totalPlayers}/2</p>
 
-      <ul style={{ marginTop: 20 }}>
-        <li>Player 1 (Host){isHost && " ← You"}</li>
-        {guests >= 1 && <li>Player 2 (Guest){!isHost && " ← You"}</li>}
+      <ul style={{ marginTop: 16 }}>
+        <li>
+          Player 1 (Host)
+          {isHost && " ← You"}
+        </li>
+        {guests >= 1 && (
+          <li>
+            Player 2 (Guest)
+            {!isHost && " ← You"}
+          </li>
+        )}
       </ul>
 
-      {isHost && totalPlayers < 2 && (
-        <p style={{ marginTop: 20, opacity: 0.7 }}>
-          Waiting for guest...
-        </p>
+      {isHost && guests < 1 && (
+        <p style={{ marginTop: 16, opacity: 0.7 }}>Waiting for guest…</p>
       )}
 
-      {isHost && totalPlayers === 2 && (
-        <button className="next-btn" style={{ marginTop: 20 }} onClick={startGame}>
+      {isHost && guests >= 1 && (
+        <button
+          className="next-btn"
+          style={{ marginTop: 24 }}
+          onClick={startGame}
+        >
           Start Game
         </button>
       )}
 
       {!isHost && (
-        <p style={{ marginTop: 20, opacity: 0.7 }}>
-          Waiting for host to start...
+        <p style={{ marginTop: 16, opacity: 0.7 }}>
+          Waiting for host to start the game…
         </p>
       )}
     </div>
