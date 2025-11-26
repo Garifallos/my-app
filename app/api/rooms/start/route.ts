@@ -1,24 +1,19 @@
-// app/api/rooms/start/route.ts
-import { NextRequest } from "next/server";
-import { pusherServer } from "@/lib/pusher-server";
+async function startGame() {
+  const category = "9";
 
-export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
+  const hostUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=1`;
+  const guestUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=0`;
 
-  const room = body?.room ?? body?.code ?? null;
-  const url = body?.url ?? null;
+  // ΣΤΕΛΝΟΥΜΕ στους Guests το ΣΩΣΤΟ URL
+  await fetch("/api/rooms/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      room: code,
+      url: guestUrl,  // ⬅⬅⬅ οι guests πάνε ΠΑΝΤΑ στο guestUrl
+    }),
+  });
 
-  // Αν για κάποιο λόγο λείπει room ή url, μην σπάσεις τον client,
-  // απλά γύρνα ok:false με reason.
-  if (!room || !url) {
-    return Response.json(
-      { ok: false, reason: "Missing room or url" },
-      { status: 200 }
-    );
-  }
-
-  // Στέλνουμε το start-game event στο κανάλι του room.
-  await pusherServer.trigger(`room-${room}`, "start-game", { url });
-
-  return Response.json({ ok: true }, { status: 200 });
+  // Ο HOST πάει στο hostUrl
+  router.push(hostUrl);
 }
