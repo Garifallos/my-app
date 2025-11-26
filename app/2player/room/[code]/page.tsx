@@ -4,6 +4,21 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { pusherClient } from "@/lib/pusher-client";
 
+// -----------------------------
+// TYPES
+// -----------------------------
+type JoinResponse =
+  | { ok: true; players: number }
+  | { ok: false; reason?: string };
+
+type PlayersUpdateEvent = {
+  players: number;
+};
+
+type StartGameEvent = {
+  url: string;
+};
+
 export default function RoomPage() {
   const router = useRouter();
   const params = useParams();
@@ -25,7 +40,7 @@ export default function RoomPage() {
     async function joinGuest() {
       if (isHost) {
         setJoining(false);
-        return; // THIS IS SAFE because it's inside useEffect
+        return;
       }
 
       try {
@@ -35,7 +50,7 @@ export default function RoomPage() {
           body: JSON.stringify({ code }),
         });
 
-        const data = await res.json();
+        const data: JoinResponse = await res.json();
 
         if (!cancelled) {
           if (!data.ok) {
@@ -52,6 +67,7 @@ export default function RoomPage() {
     }
 
     joinGuest();
+
     return () => {
       cancelled = true;
     };
@@ -64,16 +80,20 @@ export default function RoomPage() {
     const channelName = `room-${code}`;
     const channel = pusherClient.subscribe(channelName);
 
-    channel.bind("players-update", (data: any) => {
-      setGuests(data.players ?? 0);
-    });
+    const onPlayersUpdate = (data: PlayersUpdateEvent) => {
+      setGuests(data.players);
+    };
 
-    channel.bind("start-game", (data: any) => {
-      if (data?.url) router.replace(data.url);
-    });
+    const onStartGame = (data: StartGameEvent) => {
+      if (data.url) router.replace(data.url);
+    };
+
+    channel.bind("players-update", onPlayersUpdate);
+    channel.bind("start-game", onStartGame);
 
     return () => {
-      channel.unbind_all();
+      channel.unbind("players-update", onPlayersUpdate);
+      channel.unbind("start-game", onStartGame);
       pusherClient.unsubscribe(channelName);
     };
   }, [code, router]);
