@@ -1,19 +1,32 @@
-async function startGame() {
-  const category = "9";
+// app/api/rooms/start/route.ts
+import { NextRequest } from "next/server";
+import { pusherServer } from "@/lib/pusher-server";
 
-  const hostUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=1`;
-  const guestUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=0`;
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
 
-  // ΣΤΕΛΝΟΥΜΕ στους Guests το ΣΩΣΤΟ URL
-  await fetch("/api/rooms/start", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      room: code,
-      url: guestUrl,  // ⬅⬅⬅ οι guests πάνε ΠΑΝΤΑ στο guestUrl
-    }),
-  });
+    const room = body.room;
+    const url = body.url;
 
-  // Ο HOST πάει στο hostUrl
-  router.push(hostUrl);
+    if (!room || !url) {
+      return Response.json(
+        { ok: false, reason: "Missing room or url" },
+        { status: 400 }
+      );
+    }
+
+    // send URL only to this room
+    await pusherServer.trigger(`room-${room}`, "start-game", {
+      url,
+    });
+
+    return Response.json({ ok: true });
+  } catch (err) {
+    console.error("START ROUTE ERROR", err);
+    return Response.json(
+      { ok: false, reason: "Server error in start route" },
+      { status: 500 }
+    );
+  }
 }
