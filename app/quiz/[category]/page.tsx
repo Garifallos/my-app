@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useParams, useRouter } from "next/navigation";
+import { pusherClient } from "@/lib/pusher-client";
 
 type Question = {
   question: string;
@@ -49,13 +50,12 @@ export default function QuizCategoryPage() {
 
   const [showResults, setShowResults] = useState(false);
 
-  // multiplayer winner stuff
   const [winner, setWinner] = useState<string | null>(null);
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
-  // ----------------------------------------
-  // Load questions
-  // ----------------------------------------
+  // -------------------------------------------------------
+  // LOAD QUESTIONS
+  // -------------------------------------------------------
   useEffect(() => {
     async function load() {
       try {
@@ -96,9 +96,9 @@ export default function QuizCategoryPage() {
     ]);
   }, [currentQuestion]);
 
-  // ----------------------------------------
-  // Handle answering
-  // ----------------------------------------
+  // -------------------------------------------------------
+  // HANDLE ANSWER
+  // -------------------------------------------------------
   function handleAnswer(option: AnswerOption) {
     if (isAnswered) return;
 
@@ -120,15 +120,15 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // ----------------------------------------
-  // MULTIPLAYER: Send score when finished
-  // ----------------------------------------
+  // -------------------------------------------------------
+  // MULTIPLAYER: SEND SCORE WHEN FINISHED
+  // -------------------------------------------------------
   useEffect(() => {
     if (!showResults || !multiplayer) return;
     if (!room) return;
 
     async function sendScore() {
-      const playerType = isHost ? "host" : "guest";
+      const playerType: "host" | "guest" = isHost ? "host" : "guest";
 
       try {
         const res = await fetch("/api/rooms/score", {
@@ -142,11 +142,14 @@ export default function QuizCategoryPage() {
         });
 
         const data = await res.json();
-        console.log("score response:", data);
+        console.log("Score response:", data);
 
         if (data.finished) {
           setWinner(data.result);
-          setFinalScores(data.scores);
+          setFinalScores({
+            host: data.scores?.host ?? 0,
+            guest: data.scores?.guest ?? 0,
+          });
         }
       } catch (err) {
         console.error("Failed to send score", err);
@@ -156,9 +159,29 @@ export default function QuizCategoryPage() {
     sendScore();
   }, [showResults, multiplayer, room, score, isHost]);
 
-  // ----------------------------------------
-  // Go to Feedback
-  // ----------------------------------------
+  // -------------------------------------------------------
+  // MULTIPLAYER: LISTEN FOR FINAL RESULT (PUSHER)
+  // -------------------------------------------------------
+  useEffect(() => {
+    if (!multiplayer || !room) return;
+
+    const channel = pusherClient.subscribe(`room-${room}`);
+
+    channel.bind("score-final", (data: any) => {
+      console.log("Received score-final:", data);
+      setWinner(data.winner);
+      setFinalScores(data.scores);
+    });
+
+    return () => {
+      channel.unbind("score-final");
+      pusherClient.unsubscribe(`room-${room}`);
+    };
+  }, [multiplayer, room]);
+
+  // -------------------------------------------------------
+  // GO TO FEEDBACK
+  // -------------------------------------------------------
   function goToFeedback() {
     if (!multiplayer) {
       router.push(
@@ -177,9 +200,9 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // ----------------------------------------
-  // Loading
-  // ----------------------------------------
+  // -------------------------------------------------------
+  // LOADING
+  // -------------------------------------------------------
   if (loading) {
     return (
       <div className="quiz-container">
@@ -196,9 +219,9 @@ export default function QuizCategoryPage() {
     );
   }
 
-  // ----------------------------------------
+  // -------------------------------------------------------
   // RESULTS SCREEN
-  // ----------------------------------------
+  // -------------------------------------------------------
   if (showResults) {
     const waiting = multiplayer && !winner;
 
@@ -222,7 +245,7 @@ export default function QuizCategoryPage() {
               </p>
             )}
 
-            {winner && finalScores && (
+            {winner && (
               <div style={{ marginTop: 20 }}>
                 {winner === "draw" && <h2>Draw! 🤝</h2>}
                 {winner === "host" && (
@@ -237,9 +260,9 @@ export default function QuizCategoryPage() {
                 )}
 
                 <p style={{ marginTop: 10 }}>
-                  Host score: {finalScores.host ?? 0}
+                  Host score: {finalScores?.host ?? 0}
                 </p>
-                <p>Guest score: {finalScores.guest ?? 0}</p>
+                <p>Guest score: {finalScores?.guest ?? 0}</p>
               </div>
             )}
           </>
@@ -265,9 +288,9 @@ export default function QuizCategoryPage() {
     );
   }
 
-  // ----------------------------------------
+  // -------------------------------------------------------
   // MAIN QUIZ UI
-  // ----------------------------------------
+  // -------------------------------------------------------
   return (
     <div className="quiz-container">
       <h1>Quiz</h1>
@@ -325,7 +348,9 @@ export default function QuizCategoryPage() {
           style={{ marginTop: 20 }}
           onClick={nextQuestion}
         >
-          {currentIndex + 1 === questions.length ? "Show Results" : "Next Question"}
+          {currentIndex + 1 === questions.length
+            ? "Show Results"
+            : "Next Question"}
         </button>
       )}
 
