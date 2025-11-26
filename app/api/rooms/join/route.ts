@@ -3,22 +3,20 @@ import { rooms } from "@/lib/rooms";
 import { pusherServer } from "@/lib/pusher-server";
 
 export async function POST(req: NextRequest) {
-  const { room } = await req.json();   // ⬅️ ΔΙΟΡΘΩΘΗΚΕ
+  const { code } = await req.json();   // ⬅️ ΠΙΣΩ ΣΕ CODE
 
-  if (!room) {
+  if (!code) {
     return Response.json(
-      { ok: false, reason: "Missing room" },
+      { ok: false, reason: "Missing room code" },
       { status: 400 }
     );
   }
 
-  // get existing or create new room
-  let data = rooms.get(room);
+  let data = rooms.get(code);
   if (!data) {
     data = { players: 0 };
   }
 
-  // allow ONLY 1 guest (host + guest)
   if (data.players >= 1) {
     return Response.json(
       { ok: false, reason: "Room is full", players: data.players },
@@ -27,15 +25,11 @@ export async function POST(req: NextRequest) {
   }
 
   data.players += 1;
-  rooms.set(room, data);
+  rooms.set(code, data);
 
-  // notify host of player join
-  await pusherServer.trigger(`room-${room}`, "players-update", {
+  await pusherServer.trigger(`room-${code}`, "players-update", {
     players: data.players,
   });
 
-  return Response.json({
-    ok: true,
-    players: data.players,
-  });
+  return Response.json({ ok: true, players: data.players });
 }
