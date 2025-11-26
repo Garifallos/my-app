@@ -20,9 +20,6 @@ type Scores = {
   guest?: number;
 };
 
-// ------------------------------------------------------
-// Shuffle
-// ------------------------------------------------------
 function shuffleArray<T>(arr: T[]): T[] {
   const copy = [...arr];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -37,23 +34,20 @@ export default function QuizCategoryPage() {
   const params = useParams();
   const router = useRouter();
 
-  // ------------------------------------------------------
-  // FIXED: Proper category & difficulty handling
-  // ------------------------------------------------------
-  const rawCategory = params.category;
-  const category = rawCategory ? Number(rawCategory) : 9; // default category
+  // ---------------------------------------------------------
+  // FIX 1: SAFE PARAMETERS (WAITING UNTIL THEY EXIST)
+  // ---------------------------------------------------------
+  const categoryRaw = params.category;
+  const category = categoryRaw ? Number(categoryRaw) : null;
 
-  const rawDifficulty = searchParams.get("difficulty");
+  const difficultyRaw = searchParams.get("difficulty");
   const difficulty =
-    rawDifficulty && rawDifficulty !== "" ? rawDifficulty : null;
+    difficultyRaw && difficultyRaw !== "" ? difficultyRaw : null;
 
   const multiplayer = searchParams.get("multiplayer") === "1";
   const room = searchParams.get("room");
   const isHost = searchParams.get("host") === "1";
 
-  // ------------------------------------------------------
-  // State
-  // ------------------------------------------------------
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -67,54 +61,21 @@ export default function QuizCategoryPage() {
   const [winner, setWinner] = useState<string | null>(null);
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
-
+  // ---------------------------------------------------------
+  // FIX 2: DO NOT LOAD UNTIL ALL PARAMS ARE READY
+  // ---------------------------------------------------------
   useEffect(() => {
-  if (!room) return; 
-  if (!category || isNaN(category)) return;
+    // WAIT for essential params
+    if (!category || !room) return;
 
-  async function load() {
-    try {
-      const response = await fetch("/api/questions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({
-          category,
-          difficulty,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.ok && Array.isArray(data.data)) {
-        setQuestions(data.data);
-      } else {
-        setQuestions([]); // fallback/empty
-      }
-    } catch (err) {
-      console.error("Failed to load questions:", err);
-      setQuestions([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  load();
-}, [category, difficulty, room]);
-
-
-  // ------------------------------------------------------
-  // LOAD QUESTIONS WITH SAFE API CALL
-  // ------------------------------------------------------
-  useEffect(() => {
     async function load() {
       try {
         const response = await fetch("/api/questions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          cache: "no-store", // Vercel safe
+          cache: "no-store",
           body: JSON.stringify({
-            category,
+            category: Number(category),
             difficulty,
           }),
         });
@@ -124,8 +85,7 @@ export default function QuizCategoryPage() {
         if (data.ok && Array.isArray(data.data)) {
           setQuestions(data.data);
         } else {
-          console.warn("Using fallback questions");
-          setQuestions([]);
+          setQuestions([]); // empty fallback
         }
       } catch (err) {
         console.error("Failed to load questions:", err);
@@ -136,7 +96,7 @@ export default function QuizCategoryPage() {
     }
 
     load();
-  }, [category, difficulty]);
+  }, [category, difficulty, room]);
 
   const currentQuestion = questions[currentIndex];
 
@@ -151,18 +111,16 @@ export default function QuizCategoryPage() {
     ]);
   }, [currentQuestion]);
 
-  // ------------------------------------------------------
-  // Handle Answer
-  // ------------------------------------------------------
+  // ---------------------------------------------------------
+  // HANDLE ANSWER
+  // ---------------------------------------------------------
   function handleAnswer(option: AnswerOption) {
     if (isAnswered) return;
 
     setSelectedAnswer(option.text);
     setIsAnswered(true);
 
-    if (option.isCorrect) {
-      setScore((prev) => prev + 1);
-    }
+    if (option.isCorrect) setScore((prev) => prev + 1);
   }
 
   function nextQuestion() {
@@ -175,21 +133,20 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // ------------------------------------------------------
+  // ---------------------------------------------------------
   // MULTIPLAYER: SEND SCORE
-  // ------------------------------------------------------
+  // ---------------------------------------------------------
   useEffect(() => {
     if (!showResults || !multiplayer) return;
     if (!room) return;
 
     async function sendScore() {
-      const playerType: "host" | "guest" = isHost ? "host" : "guest";
+      const playerType = isHost ? "host" : "guest";
 
       try {
         const res = await fetch("/api/rooms/score", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          cache: "no-store",
           body: JSON.stringify({
             room,
             player: playerType,
@@ -198,7 +155,6 @@ export default function QuizCategoryPage() {
         });
 
         const data = await res.json();
-        console.log("Score response:", data);
 
         if (data.finished) {
           setWinner(data.result);
@@ -215,16 +171,15 @@ export default function QuizCategoryPage() {
     sendScore();
   }, [showResults, multiplayer, room, score, isHost]);
 
-  // ------------------------------------------------------
-  // MULTIPLAYER: LISTEN FOR FINAL RESULT
-  // ------------------------------------------------------
+  // ---------------------------------------------------------
+  // MULTIPLAYER: RECEIVE FINAL RESULT
+  // ---------------------------------------------------------
   useEffect(() => {
     if (!multiplayer || !room) return;
 
     const channel = pusherClient.subscribe(`room-${room}`);
 
     channel.bind("score-final", (data: any) => {
-      console.log("Received score-final:", data);
       setWinner(data.winner);
       setFinalScores(data.scores);
     });
@@ -235,9 +190,9 @@ export default function QuizCategoryPage() {
     };
   }, [multiplayer, room]);
 
-  // ------------------------------------------------------
-  // GO TO FEEDBACK
-  // ------------------------------------------------------
+  // ---------------------------------------------------------
+  // FEEDBACK
+  // ---------------------------------------------------------
   function goToFeedback() {
     if (!multiplayer) {
       router.push(
@@ -253,13 +208,13 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // ------------------------------------------------------
+  // ---------------------------------------------------------
   // LOADING
-  // ------------------------------------------------------
-  if (loading) {
+  // ---------------------------------------------------------
+  if (loading || !category || !room) {
     return (
       <div className="quiz-container">
-        <h1>Loading questions...</h1>
+        <h1>Loading…</h1>
       </div>
     );
   }
@@ -267,15 +222,14 @@ export default function QuizCategoryPage() {
   if ((!currentQuestion || questions.length === 0) && !showResults) {
     return (
       <div className="quiz-container">
-        <h1>No questions found 😢</h1>
-        <p>Try refreshing or choosing another category/difficulty.</p>
+        <h1>No questions found</h1>
       </div>
     );
   }
 
-  // ------------------------------------------------------
-  // RESULTS SCREEN
-  // ------------------------------------------------------
+  // ---------------------------------------------------------
+  // RESULTS
+  // ---------------------------------------------------------
   if (showResults) {
     const waiting = multiplayer && !winner;
 
@@ -298,17 +252,13 @@ export default function QuizCategoryPage() {
             )}
 
             {winner && (
-              <div>
+              <div style={{ marginTop: 20 }}>
                 {winner === "draw" && <h2>Draw! 🤝</h2>}
                 {winner === "host" && (
-                  <h2>
-                    Winner: Host {isHost && "(You)"} 🎉
-                  </h2>
+                  <h2>Winner: HOST {isHost && "(You)"} 🎉</h2>
                 )}
                 {winner === "guest" && (
-                  <h2>
-                    Winner: Guest {!isHost && "(You)"} 🎉
-                  </h2>
+                  <h2>Winner: GUEST {!isHost && "(You)"} 🎉</h2>
                 )}
 
                 <p>Host score: {finalScores?.host}</p>
@@ -322,17 +272,17 @@ export default function QuizCategoryPage() {
           className="next-btn"
           disabled={waiting}
           onClick={goToFeedback}
-          style={{ marginTop: 30 }}
+          style={{ marginTop: 20 }}
         >
-          {waiting ? "Waiting..." : "Continue"}
+          {waiting ? "Waiting…" : "Go to Feedback"}
         </button>
       </div>
     );
   }
 
-  // ------------------------------------------------------
-  // MAIN QUIZ UI
-  // ------------------------------------------------------
+  // ---------------------------------------------------------
+  // QUIZ UI
+  // ---------------------------------------------------------
   return (
     <div className="quiz-container">
       <h1>Quiz</h1>
@@ -384,12 +334,10 @@ export default function QuizCategoryPage() {
       {isAnswered && (
         <button
           className="next-btn"
-          style={{ marginTop: 20 }}
           onClick={nextQuestion}
+          style={{ marginTop: 20 }}
         >
-          {currentIndex + 1 === questions.length
-            ? "Finish"
-            : "Next Question"}
+          {currentIndex + 1 === questions.length ? "Finish" : "Next Question"}
         </button>
       )}
 
