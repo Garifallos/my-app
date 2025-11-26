@@ -35,9 +35,7 @@ export default function QuizCategoryPage() {
   const params = useParams();
   const router = useRouter();
 
-  // ---------------------------------------------------------
-  // ABSOLUTE FIX: WAIT FOR HYDRATION
-  // ---------------------------------------------------------
+  // HYDRATION FIX
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
@@ -49,32 +47,15 @@ export default function QuizCategoryPage() {
     );
   }
 
-  // ---------------------------------------------------------
-  // READ PARAMS SAFELY
-  // ---------------------------------------------------------
-  const categoryRaw = params.category;
-  const category = categoryRaw ? Number(categoryRaw) : null;
-
-  const difficultyRaw = searchParams.get("difficulty");
-  const difficulty =
-    difficultyRaw && difficultyRaw !== "" ? difficultyRaw : null;
-
+  // PARAMS
+  const category = Number(params.category);
+  const difficulty = searchParams.get("difficulty") ?? "";
   const multiplayer = searchParams.get("multiplayer") === "1";
   const room = searchParams.get("room");
   const isHost = searchParams.get("host") === "1";
 
-  // ---------------------------------------------------------
-  // PARAM VALIDATION
-  // ---------------------------------------------------------
-  const paramsReady =
-    hydrated &&
-    category !== null &&
-    !isNaN(category) &&
-    room !== null &&
-    typeof room === "string" &&
-    room.length > 0;
-
-  if (!paramsReady) {
+  // VALIDATE PARAMS
+  if (!category || !room) {
     return (
       <div className="quiz-container">
         <h1>Preparing quiz…</h1>
@@ -82,59 +63,48 @@ export default function QuizCategoryPage() {
     );
   }
 
-  // ---------------------------------------------------------
   // STATE
-  // ---------------------------------------------------------
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
-
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
   const [score, setScore] = useState(0);
 
   const [showResults, setShowResults] = useState(false);
-
   const [winner, setWinner] = useState<string | null>(null);
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
-  // ---------------------------------------------------------
-  // LOAD QUESTIONS (SAFE)
-  // ---------------------------------------------------------
+  // LOAD QUESTIONS
   useEffect(() => {
     async function load() {
       try {
-        const response = await fetch("/api/questions", {
+        const res = await fetch("/api/questions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           cache: "no-store",
-          body: JSON.stringify({
-            category,
-            difficulty,
-          }),
+          body: JSON.stringify({ category, difficulty }),
         });
 
-        const data = await response.json();
-
+        const data = await res.json();
         if (data.ok && Array.isArray(data.data)) {
           setQuestions(data.data);
         } else {
           setQuestions([]);
         }
-      } catch (err) {
-        console.error("Failed to load questions:", err);
+      } catch {
         setQuestions([]);
       } finally {
         setLoading(false);
       }
     }
 
-    if (paramsReady) load();
-  }, [category, difficulty, room, paramsReady]);
+    load();
+  }, [category, difficulty]);
 
   const currentQuestion = questions[currentIndex];
 
-  const shuffledAnswers: AnswerOption[] = useMemo(() => {
+  const shuffledAnswers = useMemo(() => {
     if (!currentQuestion) return [];
     return shuffleArray([
       { text: currentQuestion.correct_answer, isCorrect: true },
@@ -145,9 +115,7 @@ export default function QuizCategoryPage() {
     ]);
   }, [currentQuestion]);
 
-  // ---------------------------------------------------------
   // HANDLE ANSWER
-  // ---------------------------------------------------------
   function handleAnswer(option: AnswerOption) {
     if (isAnswered) return;
     setSelectedAnswer(option.text);
@@ -165,47 +133,33 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // ---------------------------------------------------------
-  // SEND SCORE (MULTIPLAYER)
-  // ---------------------------------------------------------
+  // SEND SCORE
   useEffect(() => {
     if (!showResults || !multiplayer) return;
 
-    async function sendScore() {
-      const playerType = isHost ? "host" : "guest";
-
+    async function send() {
+      const player = isHost ? "host" : "guest";
       const res = await fetch("/api/rooms/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          room,
-          player: playerType,
-          score,
-        }),
+        body: JSON.stringify({ room, player, score }),
       });
 
       const data = await res.json();
-
       if (data.finished) {
         setWinner(data.result);
-        setFinalScores({
-          host: data.scores?.host ?? 0,
-          guest: data.scores?.guest ?? 0,
-        });
+        setFinalScores(data.scores);
       }
     }
 
-    sendScore();
-  }, [showResults, multiplayer, room, score, isHost]);
+    send();
+  }, [showResults, score, multiplayer, isHost, room]);
 
-  // ---------------------------------------------------------
-  // RECEIVE FINAL SCORE
-  // ---------------------------------------------------------
+  // RECEIVE SCORE
   useEffect(() => {
     if (!multiplayer || !room) return;
 
     const channel = pusherClient.subscribe(`room-${room}`);
-
     channel.bind("score-final", (data: any) => {
       setWinner(data.winner);
       setFinalScores(data.scores);
@@ -217,17 +171,14 @@ export default function QuizCategoryPage() {
     };
   }, [multiplayer, room]);
 
-  // ---------------------------------------------------------
-  // FEEDBACK
-  // ---------------------------------------------------------
+  // GO TO FEEDBACK
   function goToFeedback() {
     if (!multiplayer) {
       router.push(
-        `/feedback?category=${category}&difficulty=${difficulty}&score=${score}&total=${questions.length}`
+        `/feedback?score=${score}&total=${questions.length}&category=${category}&difficulty=${difficulty}`
       );
       return;
     }
-
     if (winner && finalScores) {
       router.push(
         `/feedback?winner=${winner}&hostScore=${finalScores.host}&guestScore=${finalScores.guest}`
@@ -235,9 +186,7 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // ---------------------------------------------------------
   // LOADING
-  // ---------------------------------------------------------
   if (loading) {
     return (
       <div className="quiz-container">
@@ -246,21 +195,16 @@ export default function QuizCategoryPage() {
     );
   }
 
-  // ---------------------------------------------------------
-  // NO QUESTIONS FOUND (REAL CASE ONLY)
-  // ---------------------------------------------------------
-  if ((!currentQuestion || questions.length === 0) && !showResults) {
+  // NO QUESTIONS
+  if (!currentQuestion && !showResults) {
     return (
       <div className="quiz-container">
         <h1>No questions found</h1>
-        <p>Try again or choose another category.</p>
       </div>
     );
   }
 
-  // ---------------------------------------------------------
   // RESULTS
-  // ---------------------------------------------------------
   if (showResults) {
     const waiting = multiplayer && !winner;
 
@@ -271,27 +215,25 @@ export default function QuizCategoryPage() {
         {multiplayer ? (
           <>
             <p>Your score: {score}</p>
-
             {!winner && <p>Waiting for opponent…</p>}
-
             {winner && (
-              <div>
-                {winner === "draw" && <h2>Draw 🤝</h2>}
-                {winner === "host" && (
-                  <h2>Winner: Host {isHost && "(You)"} 🎉</h2>
-                )}
-                {winner === "guest" && (
-                  <h2>Winner: Guest {!isHost && "(You)"} 🎉</h2>
-                )}
-
-                <p>Host score: {finalScores?.host}</p>
-                <p>Guest score: {finalScores?.guest}</p>
-              </div>
+              <>
+                <h2>
+                  Winner:{" "}
+                  {winner === "draw"
+                    ? "Draw"
+                    : winner === "host"
+                    ? "Host"
+                    : "Guest"}{" "}
+                </h2>
+                <p>Host: {finalScores?.host}</p>
+                <p>Guest: {finalScores?.guest}</p>
+              </>
             )}
           </>
         ) : (
           <p>
-            Your score: {score} / {questions.length}
+            Your score: {score}/{questions.length}
           </p>
         )}
 
@@ -307,9 +249,7 @@ export default function QuizCategoryPage() {
     );
   }
 
-  // ---------------------------------------------------------
-  // MAIN QUIZ
-  // ---------------------------------------------------------
+  // MAIN
   return (
     <div className="quiz-container">
       <h1>Quiz</h1>
@@ -327,44 +267,36 @@ export default function QuizCategoryPage() {
       <div
         style={{
           padding: 20,
-          marginBottom: 20,
           background: "rgba(0,0,0,0.1)",
           borderRadius: 10,
+          marginBottom: 20,
         }}
         dangerouslySetInnerHTML={{ __html: currentQuestion.question }}
       />
 
       <div style={{ display: "grid", gap: 10 }}>
-        {shuffledAnswers.map((option) => {
-          const selected = selectedAnswer === option.text;
-          const correct = option.isCorrect;
-
-          let bg = "rgba(255,255,255,0.1)";
-          if (isAnswered) {
-            if (correct) bg = "rgba(0,200,0,0.4)";
-            else if (selected) bg = "rgba(200,0,0,0.4)";
-          } else if (selected) {
-            bg = "rgba(255,255,255,0.3)";
-          }
-
-          return (
-            <button
-              key={option.text}
-              className="next-btn"
-              style={{ background: bg }}
-              onClick={() => handleAnswer(option)}
-              dangerouslySetInnerHTML={{ __html: option.text }}
-            />
-          );
-        })}
+        {shuffledAnswers.map((option) => (
+          <button
+            key={option.text}
+            className="next-btn"
+            onClick={() => handleAnswer(option)}
+            style={{
+              background:
+                isAnswered && option.isCorrect
+                  ? "rgba(0,200,0,0.4)"
+                  : isAnswered && selectedAnswer === option.text
+                  ? "rgba(200,0,0,0.4)"
+                  : selectedAnswer === option.text
+                  ? "rgba(255,255,255,0.3)"
+                  : "rgba(255,255,255,0.1)",
+            }}
+            dangerouslySetInnerHTML={{ __html: option.text }}
+          />
+        ))}
       </div>
 
       {isAnswered && (
-        <button
-          className="next-btn"
-          onClick={nextQuestion}
-          style={{ marginTop: 20 }}
-        >
+        <button className="next-btn" onClick={nextQuestion} style={{ marginTop: 20 }}>
           {currentIndex + 1 === questions.length ? "Finish" : "Next Question"}
         </button>
       )}
