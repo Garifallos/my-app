@@ -1,79 +1,57 @@
-import { NextRequest, NextResponse } from "next/server";
-import { rooms } from "../store";
+import { NextRequest } from "next/server";
+import { rooms } from "@/lib/rooms";
+import { pusherServer } from "@/lib/pusher-server";
 
 export async function POST(req: NextRequest) {
-  try {
-    const { room: code, player, score } = await req.json();
+  const { room, player, score } = await req.json();
 
-    if (!code || !player || typeof score !== "number") {
-      return NextResponse.json(
-        { ok: false, error: "Missing fields" },
-        { status: 400 }
-      );
-    }
-
-    const room = rooms.get(code);
-    if (!room) {
-      return NextResponse.json(
-        { ok: false, error: "Room not found" },
-        { status: 404 }
-      );
-    }
-
-    // Ensure scores object exists
-    room.scores = room.scores || {};
-
-    // Save score
-    if (player === "host" || player === "guest") {
-      room.scores[player] = score;
-    } else {
-      return NextResponse.json(
-        { ok: false, error: "Invalid player type" },
-        { status: 400 }
-      );
-    }
-
-    rooms.set(code, room);
-
-    // If both have played → calculate winner
-    const hostScore = room.scores.host;
-    const guestScore = room.scores.guest;
-
-    if (hostScore !== undefined && guestScore !== undefined) {
-      let result: "host" | "guest" | "draw";
-
-      if (hostScore > guestScore) result = "host";
-      else if (guestScore > hostScore) result = "guest";
-      else result = "draw";
-
-      return NextResponse.json(
-        {
-          ok: true,
-          finished: true,
-          result,
-          scores: {
-            host: hostScore,
-            guest: guestScore,
-          },
-        },
-        { status: 200 }
-      );
-    }
-
-    // Only one player finished → wait
-    return NextResponse.json(
-      {
-        ok: true,
-        finished: false,
-        scores: room.scores,
-      },
-      { status: 200 }
-    );
-  } catch (err) {
-    console.error("SCORE ROUTE ERROR:", err);
-    return NextResponse.json(
-      { ok: false, error: "Server error" },
-      { status: 500 }
+  if (!room || !player) {
+    return Response.json(
+      { ok: false, error: "Missing room or player" },
+      { status: 400 }
     );
   }
+
+  // ensure room exists
+  let data = rooms.get(room);
+  if (!data) {
+    data = { scores: {} };
+  }
+  if (!data.scores) data.scores = {};
+
+  // save score
+  data.scores[player] = score;
+  rooms.set(room, data);
+
+  const hostScore = data.scores.host;
+  const guestScore = data.scores.guest;
+
+  // if not both players finished → WAIT
+  if (hostScore === undefined || guestScore === undefined) {
+    return Response.json({ ok: true, finished: false });
+  }
+
+  // calculate winner
+  let result: "host" | "guest" | "draw" = "draw";
+  if (hostScore > guestScore) result = "host";
+  else if (guestScore > hostScore) result = "guest";
+
+  const scores = { host: hostScore, guest: guestScore };
+
+  // notify both players
+  try {
+    await pusherServer.trigger(room, "score-final", {
+      winner: result,
+      scores,
+    });
+  } catch (err) {
+    console.error("Failed to send pusher score", err);
+  }
+
+  return Response.json({
+    ok: true,
+    finished: true,
+    result,
+    scores,
+  });
 }
