@@ -78,21 +78,29 @@ export default function RoomPage() {
   // -----------------------------
   // START GAME (HOST ONLY)
   // -----------------------------
-  async function startGame() {
-    const category = 9;
-    const difficulty = "";
+ async function startGame() {
+  const category = 9;
+  const difficulty = "";
 
-    const hostUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=1&difficulty=${difficulty}`;
-    const guestUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=0&difficulty=${difficulty}`;
+  const hostUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=1&difficulty=${difficulty}`;
+  const guestUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=0&difficulty=${difficulty}`;
 
-    await fetch("/api/rooms/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: code, url: guestUrl }),
-    });
+  // 1️⃣ πες στο Next.js να ετοιμάσει ΤΩΡΑ τη σελίδα hostUrl
+  router.prefetch(hostUrl);
 
-    router.push(hostUrl);
-  }
+  // 2️⃣ send event to guest
+  await fetch("/api/rooms/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ room: code, url: guestUrl }),
+  });
+
+  // 3️⃣ μικρή καθυστέρηση για να «σταθεροποιηθεί» το URL
+  await new Promise((resolve) => setTimeout(resolve, 120));
+
+  // 4️⃣ τώρα push (ή replace)
+  router.replace(hostUrl);
+}
 
   const totalPlayers = 1 + guests;
 
