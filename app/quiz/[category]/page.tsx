@@ -67,6 +67,42 @@ export default function QuizCategoryPage() {
   const [winner, setWinner] = useState<string | null>(null);
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
+
+  useEffect(() => {
+  if (!room) return; 
+  if (!category || isNaN(category)) return;
+
+  async function load() {
+    try {
+      const response = await fetch("/api/questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          category,
+          difficulty,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.ok && Array.isArray(data.data)) {
+        setQuestions(data.data);
+      } else {
+        setQuestions([]); // fallback/empty
+      }
+    } catch (err) {
+      console.error("Failed to load questions:", err);
+      setQuestions([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  load();
+}, [category, difficulty, room]);
+
+
   // ------------------------------------------------------
   // LOAD QUESTIONS WITH SAFE API CALL
   // ------------------------------------------------------
