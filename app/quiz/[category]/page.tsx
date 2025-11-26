@@ -20,6 +20,9 @@ type Scores = {
   guest?: number;
 };
 
+// ------------------------------------------------------
+// Shuffle
+// ------------------------------------------------------
 function shuffleArray<T>(arr: T[]): T[] {
   const copy = [...arr];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -34,12 +37,23 @@ export default function QuizCategoryPage() {
   const params = useParams();
   const router = useRouter();
 
-  const category = params.category as string;
-  const difficulty = searchParams.get("difficulty") ?? "";
+  // ------------------------------------------------------
+  // FIXED: Proper category & difficulty handling
+  // ------------------------------------------------------
+  const rawCategory = params.category;
+  const category = rawCategory ? Number(rawCategory) : 9; // default category
+
+  const rawDifficulty = searchParams.get("difficulty");
+  const difficulty =
+    rawDifficulty && rawDifficulty !== "" ? rawDifficulty : null;
+
   const multiplayer = searchParams.get("multiplayer") === "1";
   const room = searchParams.get("room");
   const isHost = searchParams.get("host") === "1";
 
+  // ------------------------------------------------------
+  // State
+  // ------------------------------------------------------
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -53,27 +67,32 @@ export default function QuizCategoryPage() {
   const [winner, setWinner] = useState<string | null>(null);
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
-  // -------------------------------------------------------
-  // LOAD QUESTIONS
-  // -------------------------------------------------------
+  // ------------------------------------------------------
+  // LOAD QUESTIONS WITH SAFE API CALL
+  // ------------------------------------------------------
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch("/api/questions", {
+        const response = await fetch("/api/questions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ category, difficulty }),
+          cache: "no-store", // Vercel safe
+          body: JSON.stringify({
+            category,
+            difficulty,
+          }),
         });
 
-        const data = await res.json();
+        const data = await response.json();
 
         if (data.ok && Array.isArray(data.data)) {
           setQuestions(data.data);
         } else {
+          console.warn("Using fallback questions");
           setQuestions([]);
         }
       } catch (err) {
-        console.error("Failed to load questions", err);
+        console.error("Failed to load questions:", err);
         setQuestions([]);
       } finally {
         setLoading(false);
@@ -96,9 +115,9 @@ export default function QuizCategoryPage() {
     ]);
   }, [currentQuestion]);
 
-  // -------------------------------------------------------
-  // HANDLE ANSWER
-  // -------------------------------------------------------
+  // ------------------------------------------------------
+  // Handle Answer
+  // ------------------------------------------------------
   function handleAnswer(option: AnswerOption) {
     if (isAnswered) return;
 
@@ -120,27 +139,27 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // -------------------------------------------------------
-  // MULTIPLAYER: SEND SCORE WHEN FINISHED
-  // -------------------------------------------------------
+  // ------------------------------------------------------
+  // MULTIPLAYER: SEND SCORE
+  // ------------------------------------------------------
   useEffect(() => {
     if (!showResults || !multiplayer) return;
     if (!room) return;
-    
 
     async function sendScore() {
       const playerType: "host" | "guest" = isHost ? "host" : "guest";
 
       try {
-       const res = await fetch("/api/questions", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    category: Number(category) || null,      // ΠΟΛΥ ΣΗΜΑΝΤΙΚΟ
-    difficulty: difficulty || null           // "" → null
-  }),
-});
-
+        const res = await fetch("/api/rooms/score", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({
+            room,
+            player: playerType,
+            score,
+          }),
+        });
 
         const data = await res.json();
         console.log("Score response:", data);
@@ -160,9 +179,9 @@ export default function QuizCategoryPage() {
     sendScore();
   }, [showResults, multiplayer, room, score, isHost]);
 
-  // -------------------------------------------------------
-  // MULTIPLAYER: LISTEN FOR FINAL RESULT (PUSHER)
-  // -------------------------------------------------------
+  // ------------------------------------------------------
+  // MULTIPLAYER: LISTEN FOR FINAL RESULT
+  // ------------------------------------------------------
   useEffect(() => {
     if (!multiplayer || !room) return;
 
@@ -180,9 +199,9 @@ export default function QuizCategoryPage() {
     };
   }, [multiplayer, room]);
 
-  // -------------------------------------------------------
+  // ------------------------------------------------------
   // GO TO FEEDBACK
-  // -------------------------------------------------------
+  // ------------------------------------------------------
   function goToFeedback() {
     if (!multiplayer) {
       router.push(
@@ -192,18 +211,15 @@ export default function QuizCategoryPage() {
     }
 
     if (winner && finalScores) {
-      const hostScore = finalScores.host ?? 0;
-      const guestScore = finalScores.guest ?? 0;
-
       router.push(
-        `/feedback?winner=${winner}&hostScore=${hostScore}&guestScore=${guestScore}&category=${category}&difficulty=${difficulty}`
+        `/feedback?winner=${winner}&hostScore=${finalScores.host}&guestScore=${finalScores.guest}`
       );
     }
   }
 
-  // -------------------------------------------------------
+  // ------------------------------------------------------
   // LOADING
-  // -------------------------------------------------------
+  // ------------------------------------------------------
   if (loading) {
     return (
       <div className="quiz-container">
@@ -212,17 +228,18 @@ export default function QuizCategoryPage() {
     );
   }
 
-  if (!currentQuestion && !showResults) {
+  if ((!currentQuestion || questions.length === 0) && !showResults) {
     return (
       <div className="quiz-container">
-        <h1>No questions found</h1>
+        <h1>No questions found 😢</h1>
+        <p>Try refreshing or choosing another category/difficulty.</p>
       </div>
     );
   }
 
-  // -------------------------------------------------------
+  // ------------------------------------------------------
   // RESULTS SCREEN
-  // -------------------------------------------------------
+  // ------------------------------------------------------
   if (showResults) {
     const waiting = multiplayer && !winner;
 
@@ -241,29 +258,25 @@ export default function QuizCategoryPage() {
             <p>Your score: {score}</p>
 
             {!winner && (
-              <p style={{ marginTop: 10, opacity: 0.8 }}>
-                Waiting for the other player to finish...
-              </p>
+              <p style={{ opacity: 0.8 }}>Waiting for opponent…</p>
             )}
 
             {winner && (
-              <div style={{ marginTop: 20 }}>
+              <div>
                 {winner === "draw" && <h2>Draw! 🤝</h2>}
                 {winner === "host" && (
                   <h2>
-                    Winner: HOST {isHost && "(You)"} 🎉
+                    Winner: Host {isHost && "(You)"} 🎉
                   </h2>
                 )}
                 {winner === "guest" && (
                   <h2>
-                    Winner: GUEST {!isHost && "(You)"} 🎉
+                    Winner: Guest {!isHost && "(You)"} 🎉
                   </h2>
                 )}
 
-                <p style={{ marginTop: 10 }}>
-                  Host score: {finalScores?.host ?? 0}
-                </p>
-                <p>Guest score: {finalScores?.guest ?? 0}</p>
+                <p>Host score: {finalScores?.host}</p>
+                <p>Guest score: {finalScores?.guest}</p>
               </div>
             )}
           </>
@@ -271,36 +284,25 @@ export default function QuizCategoryPage() {
 
         <button
           className="next-btn"
-          style={{ marginTop: 30, opacity: waiting ? 0.5 : 1 }}
           disabled={waiting}
           onClick={goToFeedback}
+          style={{ marginTop: 30 }}
         >
-          {waiting ? "Waiting for opponent..." : "Go to Feedback"}
-        </button>
-
-        <button
-          className="next-btn"
-          style={{ marginTop: 10, background: "rgba(255,255,255,0.1)" }}
-          onClick={() => router.push("/")}
-        >
-          Back to Home
+          {waiting ? "Waiting..." : "Continue"}
         </button>
       </div>
     );
   }
 
-  // -------------------------------------------------------
+  // ------------------------------------------------------
   // MAIN QUIZ UI
-  // -------------------------------------------------------
+  // ------------------------------------------------------
   return (
     <div className="quiz-container">
       <h1>Quiz</h1>
 
       {multiplayer && (
-        <div style={{ opacity: 0.7, marginBottom: 10 }}>
-          <p>Room: {room}</p>
-          <p>{isHost ? "You are the HOST" : "You are the GUEST"}</p>
-        </div>
+        <p>Room: {room} ({isHost ? "Host" : "Guest"})</p>
       )}
 
       <h3>
@@ -350,7 +352,7 @@ export default function QuizCategoryPage() {
           onClick={nextQuestion}
         >
           {currentIndex + 1 === questions.length
-            ? "Show Results"
+            ? "Finish"
             : "Next Question"}
         </button>
       )}
