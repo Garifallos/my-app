@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams, useParams, useRouter } from "next/navigation";
 import { pusherClient } from "@/lib/pusher-client";
 
@@ -35,48 +35,50 @@ export default function QuizCategoryPage() {
   const params = useParams();
   const router = useRouter();
 
-  // HYDRATION FIX
+  // MUST BE FIRST HOOKS
   const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
 
-  if (!hydrated) {
-    return (
-      <div className="quiz-container">
-        <h1>Preparing quiz…</h1>
-      </div>
-    );
-  }
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
-  // PARAMS
+  // ALL OTHER HOOKS BELOW ↓↓↓
+
   const category = Number(params.category);
   const difficulty = searchParams.get("difficulty") ?? "";
   const multiplayer = searchParams.get("multiplayer") === "1";
+
   const room = searchParams.get("room");
   const isHost = searchParams.get("host") === "1";
 
-  // VALIDATE PARAMS
-  if (!category || !room) {
-    return (
-      <div className="quiz-container">
-        <h1>Preparing quiz…</h1>
-      </div>
-    );
-  }
-
-  // STATE
+  // Main states
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
   const [score, setScore] = useState(0);
 
+  const [shuffledAnswers, setShuffledAnswers] = useState<AnswerOption[]>([]);
+
   const [showResults, setShowResults] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
+  // Redirect only after hydration
+  useEffect(() => {
+    if (!hydrated) return;
+
+    if (!category || !room) {
+      router.replace("/");
+    }
+  }, [hydrated, category, room, router]);
+
   // LOAD QUESTIONS
   useEffect(() => {
+    if (!hydrated) return;
+
     async function load() {
       try {
         const res = await fetch("/api/questions", {
@@ -87,6 +89,7 @@ export default function QuizCategoryPage() {
         });
 
         const data = await res.json();
+
         if (data.ok && Array.isArray(data.data)) {
           setQuestions(data.data);
         } else {
@@ -100,27 +103,34 @@ export default function QuizCategoryPage() {
     }
 
     load();
-  }, [category, difficulty]);
+  }, [hydrated, category, difficulty]);
 
   const currentQuestion = questions[currentIndex];
 
-  const shuffledAnswers = useMemo(() => {
-    if (!currentQuestion) return [];
-    return shuffleArray([
+  // shuffle answers safely
+  useEffect(() => {
+    if (!currentQuestion) return;
+
+    const allAnswers: AnswerOption[] = [
       { text: currentQuestion.correct_answer, isCorrect: true },
       ...currentQuestion.incorrect_answers.map((t) => ({
         text: t,
         isCorrect: false,
       })),
-    ]);
+    ];
+
+    setShuffledAnswers(shuffleArray(allAnswers));
   }, [currentQuestion]);
 
-  // HANDLE ANSWER
   function handleAnswer(option: AnswerOption) {
     if (isAnswered) return;
+
     setSelectedAnswer(option.text);
     setIsAnswered(true);
-    if (option.isCorrect) setScore((prev) => prev + 1);
+
+    if (option.isCorrect) {
+      setScore((prev) => prev + 1);
+    }
   }
 
   function nextQuestion() {
@@ -133,12 +143,13 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // SEND SCORE
+  // SEND SCORE (multiplayer)
   useEffect(() => {
     if (!showResults || !multiplayer) return;
 
     async function send() {
       const player = isHost ? "host" : "guest";
+
       const res = await fetch("/api/rooms/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -146,6 +157,7 @@ export default function QuizCategoryPage() {
       });
 
       const data = await res.json();
+
       if (data.finished) {
         setWinner(data.result);
         setFinalScores(data.scores);
@@ -160,7 +172,8 @@ export default function QuizCategoryPage() {
     if (!multiplayer || !room) return;
 
     const channel = pusherClient.subscribe(`room-${room}`);
-    channel.bind("score-final", (data: any) => {
+
+    channel.bind("score-final", (data: { winner: string; scores: Scores }) => {
       setWinner(data.winner);
       setFinalScores(data.scores);
     });
@@ -171,7 +184,6 @@ export default function QuizCategoryPage() {
     };
   }, [multiplayer, room]);
 
-  // GO TO FEEDBACK
   function goToFeedback() {
     if (!multiplayer) {
       router.push(
@@ -179,6 +191,7 @@ export default function QuizCategoryPage() {
       );
       return;
     }
+
     if (winner && finalScores) {
       router.push(
         `/feedback?winner=${winner}&hostScore=${finalScores.host}&guestScore=${finalScores.guest}`
@@ -186,7 +199,16 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // LOADING
+  // EARLY RETURNS BELOW ARE SAFE (hooks already declared above)
+
+  if (!hydrated) {
+    return (
+      <div className="quiz-container">
+        <h1>Preparing quiz…</h1>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="quiz-container">
@@ -195,7 +217,6 @@ export default function QuizCategoryPage() {
     );
   }
 
-  // NO QUESTIONS
   if (!currentQuestion && !showResults) {
     return (
       <div className="quiz-container">
@@ -224,7 +245,7 @@ export default function QuizCategoryPage() {
                     ? "Draw"
                     : winner === "host"
                     ? "Host"
-                    : "Guest"}{" "}
+                    : "Guest"}
                 </h2>
                 <p>Host: {finalScores?.host}</p>
                 <p>Guest: {finalScores?.guest}</p>
@@ -249,7 +270,7 @@ export default function QuizCategoryPage() {
     );
   }
 
-  // MAIN
+  // MAIN QUIZ
   return (
     <div className="quiz-container">
       <h1>Quiz</h1>
