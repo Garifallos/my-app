@@ -1,3 +1,4 @@
+// app/api/rooms/start/route.ts
 import { NextRequest } from "next/server";
 import { pusherServer } from "@/lib/pusher-server";
 
@@ -11,9 +12,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  await pusherServer.trigger(`room-${room}`, "start-game", {
-    url,
-  });
+  await pusherServer.trigger(`room-${room}`, "start-game", { url });
 
   return Response.json({ ok: true });
 }

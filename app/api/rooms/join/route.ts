@@ -1,3 +1,4 @@
+// app/api/rooms/join/route.ts
 import { NextRequest } from "next/server";
 import { rooms } from "@/lib/rooms";
 import { pusherServer } from "@/lib/pusher-server";
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
     data = { players: 0 };
   }
 
-  // allow only 1 guest
+  // επιτρέπουμε μόνο 1 guest (host + 1 guest = 2 παίκτες)
   if (data.players >= 1) {
     return Response.json(
       { ok: false, reason: "Room is full", players: data.players },
@@ -28,9 +29,9 @@ export async function POST(req: NextRequest) {
   data.players += 1;
   rooms.set(code, data);
 
-  // notify host
+  // ενημέρωση host/guest
   await pusherServer.trigger(`room-${code}`, "players-update", {
-    players: data.players,
+    players: data.players, // μόνο guests
   });
 
   return Response.json({ ok: true, players: data.players });

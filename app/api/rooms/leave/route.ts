@@ -1,3 +1,4 @@
+// app/api/rooms/leave/route.ts
 import { NextRequest } from "next/server";
 import { rooms } from "@/lib/rooms";
 import { pusherServer } from "@/lib/pusher-server";
