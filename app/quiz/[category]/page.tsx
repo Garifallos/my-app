@@ -20,6 +20,7 @@ type Scores = {
   guest?: number;
 };
 
+// Shuffle helper
 function shuffleArray<T>(arr: T[]): T[] {
   const copy = [...arr];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -35,9 +36,23 @@ export default function QuizCategoryPage() {
   const router = useRouter();
 
   // ---------------------------------------------------------
-  // Read parameters
+  // ABSOLUTE FIX: WAIT FOR HYDRATION
   // ---------------------------------------------------------
-  const categoryRaw = params.category; 
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+
+  if (!hydrated) {
+    return (
+      <div className="quiz-container">
+        <h1>Preparing quiz…</h1>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------
+  // READ PARAMS SAFELY
+  // ---------------------------------------------------------
+  const categoryRaw = params.category;
   const category = categoryRaw ? Number(categoryRaw) : null;
 
   const difficultyRaw = searchParams.get("difficulty");
@@ -49,15 +64,16 @@ export default function QuizCategoryPage() {
   const isHost = searchParams.get("host") === "1";
 
   // ---------------------------------------------------------
-  // Prevent early loading (THE FIX!)
+  // PARAM VALIDATION
   // ---------------------------------------------------------
   const paramsReady =
+    hydrated &&
     category !== null &&
-    !isNaN(Number(category)) &&
+    !isNaN(category) &&
     room !== null &&
-    room !== undefined;
+    typeof room === "string" &&
+    room.length > 0;
 
-  // Μην κάνεις render ΟΥΤΕ fetch πριν έρθουν τα κατάλληλα URL params
   if (!paramsReady) {
     return (
       <div className="quiz-container">
@@ -67,7 +83,7 @@ export default function QuizCategoryPage() {
   }
 
   // ---------------------------------------------------------
-  // State
+  // STATE
   // ---------------------------------------------------------
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,11 +94,12 @@ export default function QuizCategoryPage() {
   const [score, setScore] = useState(0);
 
   const [showResults, setShowResults] = useState(false);
+
   const [winner, setWinner] = useState<string | null>(null);
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
   // ---------------------------------------------------------
-  // Load Questions (AFTER paramsReady)
+  // LOAD QUESTIONS (SAFE)
   // ---------------------------------------------------------
   useEffect(() => {
     async function load() {
@@ -102,7 +119,7 @@ export default function QuizCategoryPage() {
         if (data.ok && Array.isArray(data.data)) {
           setQuestions(data.data);
         } else {
-          setQuestions([]); 
+          setQuestions([]);
         }
       } catch (err) {
         console.error("Failed to load questions:", err);
@@ -112,16 +129,14 @@ export default function QuizCategoryPage() {
       }
     }
 
-    if (paramsReady) {
-      load();
-    }
+    if (paramsReady) load();
   }, [category, difficulty, room, paramsReady]);
 
   const currentQuestion = questions[currentIndex];
 
   const shuffledAnswers: AnswerOption[] = useMemo(() => {
     if (!currentQuestion) return [];
-    return shuffleArray<AnswerOption>([
+    return shuffleArray([
       { text: currentQuestion.correct_answer, isCorrect: true },
       ...currentQuestion.incorrect_answers.map((t) => ({
         text: t,
@@ -135,18 +150,14 @@ export default function QuizCategoryPage() {
   // ---------------------------------------------------------
   function handleAnswer(option: AnswerOption) {
     if (isAnswered) return;
-
     setSelectedAnswer(option.text);
     setIsAnswered(true);
-
-    if (option.isCorrect) {
-      setScore((prev) => prev + 1);
-    }
+    if (option.isCorrect) setScore((prev) => prev + 1);
   }
 
   function nextQuestion() {
     if (currentIndex + 1 < questions.length) {
-      setCurrentIndex((prev) => prev + 1);
+      setCurrentIndex((p) => p + 1);
       setSelectedAnswer(null);
       setIsAnswered(false);
     } else {
@@ -155,38 +166,32 @@ export default function QuizCategoryPage() {
   }
 
   // ---------------------------------------------------------
-  // MULTIPLAYER: SEND SCORE
+  // SEND SCORE (MULTIPLAYER)
   // ---------------------------------------------------------
   useEffect(() => {
     if (!showResults || !multiplayer) return;
-    if (!room) return;
 
     async function sendScore() {
-      const playerType: "host" | "guest" = isHost ? "host" : "guest";
+      const playerType = isHost ? "host" : "guest";
 
-      try {
-        const res = await fetch("/api/rooms/score", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          cache: "no-store",
-          body: JSON.stringify({
-            room,
-            player: playerType,
-            score,
-          }),
+      const res = await fetch("/api/rooms/score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          room,
+          player: playerType,
+          score,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.finished) {
+        setWinner(data.result);
+        setFinalScores({
+          host: data.scores?.host ?? 0,
+          guest: data.scores?.guest ?? 0,
         });
-
-        const data = await res.json();
-
-        if (data.finished) {
-          setWinner(data.result);
-          setFinalScores({
-            host: data.scores?.host ?? 0,
-            guest: data.scores?.guest ?? 0,
-          });
-        }
-      } catch (err) {
-        console.error("Failed to send score", err);
       }
     }
 
@@ -194,7 +199,7 @@ export default function QuizCategoryPage() {
   }, [showResults, multiplayer, room, score, isHost]);
 
   // ---------------------------------------------------------
-  // MULTIPLAYER: RECEIVE FINAL
+  // RECEIVE FINAL SCORE
   // ---------------------------------------------------------
   useEffect(() => {
     if (!multiplayer || !room) return;
@@ -207,7 +212,7 @@ export default function QuizCategoryPage() {
     });
 
     return () => {
-      channel.unbind("score-final");
+      channel.unbind_all();
       pusherClient.unsubscribe(`room-${room}`);
     };
   }, [multiplayer, room]);
@@ -242,12 +247,13 @@ export default function QuizCategoryPage() {
   }
 
   // ---------------------------------------------------------
-  // NO QUESTIONS (SHOULD NOT HAPPEN NOW)
+  // NO QUESTIONS FOUND (REAL CASE ONLY)
   // ---------------------------------------------------------
   if ((!currentQuestion || questions.length === 0) && !showResults) {
     return (
       <div className="quiz-container">
         <h1>No questions found</h1>
+        <p>Try again or choose another category.</p>
       </div>
     );
   }
@@ -262,14 +268,15 @@ export default function QuizCategoryPage() {
       <div className="quiz-container">
         <h1>Game Over!</h1>
 
-        {multiplayer && (
+        {multiplayer ? (
           <>
             <p>Your score: {score}</p>
+
             {!winner && <p>Waiting for opponent…</p>}
 
             {winner && (
-              <div style={{ marginTop: 20 }}>
-                {winner === "draw" && <h2>Draw! 🤝</h2>}
+              <div>
+                {winner === "draw" && <h2>Draw 🤝</h2>}
                 {winner === "host" && (
                   <h2>Winner: Host {isHost && "(You)"} 🎉</h2>
                 )}
@@ -282,9 +289,7 @@ export default function QuizCategoryPage() {
               </div>
             )}
           </>
-        )}
-
-        {!multiplayer && (
+        ) : (
           <p>
             Your score: {score} / {questions.length}
           </p>
@@ -303,7 +308,7 @@ export default function QuizCategoryPage() {
   }
 
   // ---------------------------------------------------------
-  // MAIN QUIZ UI
+  // MAIN QUIZ
   // ---------------------------------------------------------
   return (
     <div className="quiz-container">
@@ -316,15 +321,15 @@ export default function QuizCategoryPage() {
       )}
 
       <h3>
-        Question {currentIndex + 1} / {questions.length}
+        Question {currentIndex + 1}/{questions.length}
       </h3>
 
       <div
         style={{
-          marginBottom: 20,
           padding: 20,
-          borderRadius: 10,
+          marginBottom: 20,
           background: "rgba(0,0,0,0.1)",
+          borderRadius: 10,
         }}
         dangerouslySetInnerHTML={{ __html: currentQuestion.question }}
       />
@@ -335,7 +340,6 @@ export default function QuizCategoryPage() {
           const correct = option.isCorrect;
 
           let bg = "rgba(255,255,255,0.1)";
-
           if (isAnswered) {
             if (correct) bg = "rgba(0,200,0,0.4)";
             else if (selected) bg = "rgba(200,0,0,0.4)";
