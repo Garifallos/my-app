@@ -14,7 +14,7 @@ export default function TwoPlayerHome() {
 
   function joinRoom() {
     if (joinCode.length === 4) {
-      router.push(`/2player/room/${joinCode}`);
+      router.push(`/2player/room/${joinCode}?host=0`);
     }
   }
 
