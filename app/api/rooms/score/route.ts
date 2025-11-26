@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { rooms } from "@/lib/rooms";
-import { pusherServer } from "@/lib/pusher-server";
 
 type PlayerType = "host" | "guest";
 
@@ -16,32 +15,33 @@ export async function POST(req: NextRequest) {
 
   const playerType = player as PlayerType;
 
+  // ensure room exists
   let data = rooms.get(room);
-  if (!data) data = { scores: {} };
-  if (!data.scores) data.scores = {};
+  if (!data) {
+    data = { scores: { host: undefined, guest: undefined } };
+  }
+  if (!data.scores) {
+    data.scores = { host: undefined, guest: undefined };
+  }
 
-  // store score
+  // TS-safe score assignment
   data.scores[playerType] = score;
   rooms.set(room, data);
 
   const hostScore = data.scores.host;
   const guestScore = data.scores.guest;
 
+  // if not both scores submitted → wait
   if (hostScore === undefined || guestScore === undefined) {
     return Response.json({ ok: true, finished: false });
   }
 
+  // calculate winner
   let result: "host" | "guest" | "draw" = "draw";
   if (hostScore > guestScore) result = "host";
   else if (guestScore > hostScore) result = "guest";
 
   const scores = { host: hostScore, guest: guestScore };
-
-  // CRITICAL PART ⬇⬇⬇⬇⬇
-  await pusherServer.trigger(`room-${room}`, "score-final", {
-    winner: result,
-    scores,
-  });
 
   return Response.json({
     ok: true,
