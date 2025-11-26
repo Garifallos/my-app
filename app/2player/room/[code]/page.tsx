@@ -97,23 +97,24 @@ export default function RoomPage() {
   // -------------------------------
   // START GAME (HOST)
   // -------------------------------
-  async function startGame() {
-    const category = "9";
+ async function startGame() {
+  const category = 9; // MUST be number, όχι string
+  const difficulty = ""; // αν δεν έχεις ακόμη difficulty
 
-    const hostUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=1`;
-    const guestUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=0`;
+  const hostUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=1&difficulty=${difficulty}`;
+  const guestUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=0&difficulty=${difficulty}`;
 
-    await fetch("/api/rooms/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        room: code,
-        url: guestUrl,
-      }),
-    });
+  await fetch("/api/rooms/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      room: code,
+      url: guestUrl,
+    }),
+  });
 
-    router.push(hostUrl);
-  }
+  router.push(hostUrl);
+}
 
   const totalPlayers = 1 + guests; // 1 host + guests
 
