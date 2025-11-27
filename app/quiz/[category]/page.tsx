@@ -67,8 +67,6 @@ export default function QuizCategoryPage() {
   // STATES
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
-  const [hostQuestionsReady, setHostQuestionsReady] = useState(false);
-
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
@@ -78,10 +76,9 @@ export default function QuizCategoryPage() {
   const [winner, setWinner] = useState<string | null>(null);
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
-  // LOAD QUESTIONS (ONLY for GUEST or SINGLE PLAYER)
+  // LOAD QUESTIONS when params ready
   useEffect(() => {
     if (!paramsReady) return;
-    if (multiplayer && isHost) return; // HOST DOES NOT FETCH DIRECTLY
 
     async function load() {
       setLoading(true);
@@ -107,32 +104,7 @@ export default function QuizCategoryPage() {
     }
 
     load();
-  }, [paramsReady, category, difficulty, multiplayer, isHost]);
-
-  // HOST waits for Pusher event
-  useEffect(() => {
-    if (!(multiplayer && isHost && room)) return;
-
-    const channel = pusherClient.subscribe(`room-${room}`);
-
-    channel.bind("questions-ready", (data: any) => {
-      console.log("🔥 Host received questions:", data);
-      setQuestions(data.questions);
-      setHostQuestionsReady(true);
-      setLoading(false);
-    });
-
-    // Host triggers backend to prepare questions
-    fetch("/api/rooms/start", {
-      method: "POST",
-      body: JSON.stringify({ room, category, difficulty }),
-    });
-
-    return () => {
-      channel.unbind("questions-ready");
-      pusherClient.unsubscribe(`room-${room}`);
-    };
-  }, [multiplayer, isHost, room, category, difficulty]);
+  }, [paramsReady, category, difficulty]);
 
   const currentQuestion = questions[currentIndex];
 
@@ -217,13 +189,8 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // FINAL LOADING FIX
-  if (
-    !paramsReady ||
-    loading ||
-    (!currentQuestion && !showResults) ||
-    (multiplayer && isHost && !hostQuestionsReady)
-  ) {
+  // FINAL LOADING FIX — prevents host stuck loading
+  if (!paramsReady || loading || (!currentQuestion && !showResults)) {
     return (
       <div className="quiz-container">
         <h1>Loading quiz…</h1>
