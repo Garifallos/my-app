@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     await pusherServer.trigger(`room-${room}`, "start-game", { url });
 
     return Response.json({ ok: true });
-  } catch (err) {
+  } catch {
     return Response.json(
       { ok: false, error: "Server error" },
       { status: 500 }
