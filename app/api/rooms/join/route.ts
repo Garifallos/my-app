@@ -12,13 +12,13 @@ export async function POST(req: NextRequest) {
 
   let room = rooms.get(code);
 
-  // If room doesn't exist → create it
+  // If there is NO room, create a new one
   if (!room) {
     room = { players: 0 };
     rooms.set(code, room);
   }
 
-  // ❗ FIX: allow exactly 1 guest (host is not counted)
+  // Only 1 guest allowed
   if (room.players >= 1) {
     return Response.json(
       { ok: false, reason: "Room is full" },
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Guest joins
+  // Register the guest
   room.players += 1;
   rooms.set(code, room);
 
