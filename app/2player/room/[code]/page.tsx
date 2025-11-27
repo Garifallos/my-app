@@ -4,9 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { pusherClient } from "@/lib/pusher-client";
 
-// -----------------------------
 // TYPES
-// -----------------------------
 type JoinResponse =
   | { ok: true; players: number }
   | { ok: false; reason?: string };
@@ -31,9 +29,9 @@ export default function RoomPage() {
   const [joining, setJoining] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // -----------------------------
-  // JOIN (Guest ONLY)
-  // -----------------------------
+  // ---------------------------------
+  // GUEST: JOIN ROOM
+  // ---------------------------------
   useEffect(() => {
     let cancelled = false;
 
@@ -73,20 +71,20 @@ export default function RoomPage() {
     };
   }, [code, isHost]);
 
-  // -----------------------------
-  // PUSHER EVENTS
-  // -----------------------------
+  // ---------------------------------
+  // PUSHER: LISTEN FOR EVENTS
+  // ---------------------------------
   useEffect(() => {
     const channelName = `room-${code}`;
     const channel = pusherClient.subscribe(channelName);
 
-    const onPlayersUpdate = (data: PlayersUpdateEvent) => {
+    function onPlayersUpdate(data: PlayersUpdateEvent) {
       setGuests(data.players);
-    };
+    }
 
-    const onStartGame = (data: StartGameEvent) => {
+    function onStartGame(data: StartGameEvent) {
       if (data.url) router.replace(data.url);
-    };
+    }
 
     channel.bind("players-update", onPlayersUpdate);
     channel.bind("start-game", onStartGame);
@@ -98,18 +96,19 @@ export default function RoomPage() {
     };
   }, [code, router]);
 
-  // -----------------------------
-  // START GAME
-  // -----------------------------
+  // ---------------------------------
+  // HOST: START GAME
+  // ---------------------------------
   async function startGame() {
     if (!isHost || guests < 1) return;
 
-    const category = 9;
+    const category = 9; // static category
     const difficulty = "";
 
     const hostUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=1&difficulty=${difficulty}`;
     const guestUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=0&difficulty=${difficulty}`;
 
+    // Notify guest via start-game event
     await fetch("/api/rooms/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -121,9 +120,9 @@ export default function RoomPage() {
 
   const totalPlayers = 1 + guests;
 
-  // -----------------------------
+  // ---------------------------------
   // UI
-  // -----------------------------
+  // ---------------------------------
   if (joining) {
     return (
       <div className="quiz-container">
@@ -149,13 +148,10 @@ export default function RoomPage() {
       <p>Players: {totalPlayers}/2</p>
 
       <ul style={{ marginTop: 16 }}>
-        <li>
-          Player 1 (Host) {isHost && "← You"}
-        </li>
+        <li>Player 1 (Host) {isHost && "← You"}</li>
+
         {guests >= 1 && (
-          <li>
-            Player 2 (Guest) {!isHost && "← You"}
-          </li>
+          <li>Player 2 (Guest) {!isHost && "← You"}</li>
         )}
       </ul>
 

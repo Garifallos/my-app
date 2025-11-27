@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 🔥 Send start-game event to GUEST
+    // Send start-game event to GUEST
     await pusherServer.trigger(`room-${room}`, "start-game", { url });
 
     return Response.json({ ok: true });
