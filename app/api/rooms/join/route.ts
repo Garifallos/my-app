@@ -4,36 +4,46 @@ import { rooms } from "@/lib/rooms";
 import { pusherServer } from "@/lib/pusher-server";
 
 export async function POST(req: NextRequest) {
-  const { code } = await req.json();
+  try {
+    const { code } = await req.json();
 
-  if (!code) {
-    return Response.json({ ok: false, reason: "Missing room code" }, { status: 400 });
-  }
+    if (!code) {
+      return Response.json(
+        { ok: false, reason: "Missing room code" },
+        { status: 400 }
+      );
+    }
 
-  let room = rooms.get(code);
+    let room = rooms.get(code);
 
-  // If there is NO room, create a new one
-  if (!room) {
-    room = { players: 0 };
+    // ⚠️ If host never created room → create it now
+    if (!room) {
+      room = { players: 0 };
+      rooms.set(code, room);
+    }
+
+    // ⚠️ Only 1 guest allowed
+    if (room.players >= 1) {
+      return Response.json(
+        { ok: false, reason: "Room is full" },
+        { status: 400 }
+      );
+    }
+
+    // Register guest
+    room.players += 1;
     rooms.set(code, room);
-  }
 
-  // Only 1 guest allowed
-  if (room.players >= 1) {
+    // Notify host
+    await pusherServer.trigger(`room-${code}`, "players-update", {
+      players: room.players,
+    });
+
+    return Response.json({ ok: true, players: room.players });
+  } catch (err) {
     return Response.json(
-      { ok: false, reason: "Room is full" },
-      { status: 400 }
+      { ok: false, reason: "Server error" },
+      { status: 500 }
     );
   }
-
-  // Register the guest
-  room.players += 1;
-  rooms.set(code, room);
-
-  // Notify host
-  await pusherServer.trigger(`room-${code}`, "players-update", {
-    players: room.players,
-  });
-
-  return Response.json({ ok: true, players: room.players });
 }
