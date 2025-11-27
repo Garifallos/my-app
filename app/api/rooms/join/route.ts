@@ -7,32 +7,33 @@ export async function POST(req: NextRequest) {
   const { code } = await req.json();
 
   if (!code) {
+    return Response.json({ ok: false, reason: "Missing room code" }, { status: 400 });
+  }
+
+  let room = rooms.get(code);
+
+  // If room doesn't exist → create it
+  if (!room) {
+    room = { players: 0 };
+    rooms.set(code, room);
+  }
+
+  // ❗ FIX: allow exactly 1 guest (host is not counted)
+  if (room.players >= 1) {
     return Response.json(
-      { ok: false, reason: "Missing room code" },
+      { ok: false, reason: "Room is full" },
       { status: 400 }
     );
   }
 
-  let data = rooms.get(code);
-  if (!data) {
-    data = { players: 0 };
-  }
+  // Guest joins
+  room.players += 1;
+  rooms.set(code, room);
 
-  // επιτρέπουμε μόνο 1 guest (host + 1 guest = 2 παίκτες)
-  if (data.players >= 1) {
-    return Response.json(
-      { ok: false, reason: "Room is full", players: data.players },
-      { status: 400 }
-    );
-  }
-
-  data.players += 1;
-  rooms.set(code, data);
-
-  // ενημέρωση host/guest
+  // Notify host
   await pusherServer.trigger(`room-${code}`, "players-update", {
-    players: data.players, // μόνο guests
+    players: room.players,
   });
 
-  return Response.json({ ok: true, players: data.players });
+  return Response.json({ ok: true, players: room.players });
 }
