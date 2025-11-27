@@ -34,7 +34,7 @@ export default function QuizCategoryPage() {
   const params = useParams();
   const router = useRouter();
 
-  // HYDRATION FIX
+  // HYDRATION
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
@@ -52,12 +52,17 @@ export default function QuizCategoryPage() {
   const room = searchParams.get("room");
   const isHost = searchParams.get("host") === "1";
 
-  // STATES
+  // Περιμένουμε μέχρι να είναι όλα έτοιμα
+  const [paramsReady, setParamsReady] = useState(false);
+  useEffect(() => {
+    if (hydrated && !Number.isNaN(category) && (room || !multiplayer)) {
+      setParamsReady(true);
+    }
+  }, [hydrated, category, room, multiplayer]);
+
+  // STATE
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
-  const [hostReady, setHostReady] = useState(false);
-  const [guestReady, setGuestReady] = useState(false);
-
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
@@ -67,66 +72,9 @@ export default function QuizCategoryPage() {
   const [winner, setWinner] = useState<string | null>(null);
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
-  // ---------------------------------------------
-  // HOST: Wait for questions-ready
-  // ---------------------------------------------
+  // 🔥 Φόρτωμα ερωτήσεων (Host + Guest, ίδιος κώδικας)
   useEffect(() => {
-    if (!(multiplayer && isHost && room)) return;
-
-    const channel = pusherClient.subscribe(`room-${room}`);
-
-    channel.bind("questions-ready", (data: any) => {
-      console.log("🔥 Host received questions:", data.questions);
-      setQuestions(data.questions);
-      setLoading(false);
-      setHostReady(true);
-    });
-
-    // Host requests questions from backend
-    fetch("/api/rooms/start", {
-      method: "POST",
-      body: JSON.stringify({ room, category, difficulty }),
-    });
-
-    return () => {
-      channel.unbind("questions-ready");
-      pusherClient.unsubscribe(`room-${room}`);
-    };
-  }, [multiplayer, isHost, room, category, difficulty]);
-
-  // ---------------------------------------------
-  // GUEST: Wait for the same questions-ready event
-  // ---------------------------------------------
-  useEffect(() => {
-    if (!(multiplayer && !isHost && room)) return;
-
-    const channel = pusherClient.subscribe(`room-${room}`);
-
-    channel.bind("questions-ready", (data: any) => {
-      console.log("🔥 Guest received questions:", data.questions);
-      setQuestions(data.questions);
-      setLoading(false);
-      setGuestReady(true);
-    });
-
-    return () => {
-      channel.unbind("questions-ready");
-      pusherClient.unsubscribe(`room-${room}`);
-    };
-  }, [multiplayer, isHost, room]);
-
-  // ---------------------------------------------
-  // SINGLE PLAYER + GUEST fallback load
-  // ---------------------------------------------
-  useEffect(() => {
-    if (!hydrated) return;
-    if (Number.isNaN(category)) return;
-
-    // Host NEVER manually loads
-    if (multiplayer && isHost) return;
-
-    // Guest loads questions only AFTER receiving questions-ready
-    if (multiplayer && !isHost && !guestReady) return;
+    if (!paramsReady) return;
 
     async function load() {
       setLoading(true);
@@ -152,11 +100,11 @@ export default function QuizCategoryPage() {
     }
 
     load();
-  }, [hydrated, category, difficulty, multiplayer, isHost, guestReady]);
+  }, [paramsReady, category, difficulty]);
 
   const currentQuestion = questions[currentIndex];
 
-  const shuffledAnswers = useMemo(() => {
+  const shuffledAnswers = useMemo<AnswerOption[]>(() => {
     if (!currentQuestion) return [];
     return shuffleArray([
       { text: currentQuestion.correct_answer, isCorrect: true },
@@ -167,21 +115,17 @@ export default function QuizCategoryPage() {
     ]);
   }, [currentQuestion]);
 
-  // HANDLE ANSWER
+  // Απάντηση
   function handleAnswer(option: AnswerOption) {
     if (isAnswered) return;
-
     setSelectedAnswer(option.text);
     setIsAnswered(true);
-
-    if (option.isCorrect) {
-      setScore((prev) => prev + 1);
-    }
+    if (option.isCorrect) setScore((s) => s + 1);
   }
 
   function nextQuestion() {
     if (currentIndex + 1 < questions.length) {
-      setCurrentIndex((prev) => prev + 1);
+      setCurrentIndex((i) => i + 1);
       setSelectedAnswer(null);
       setIsAnswered(false);
     } else {
@@ -189,36 +133,32 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // SEND SCORE
+  // Στέλνουμε score στο backend όταν τελειώσει το quiz (μόνο στο multiplayer)
   useEffect(() => {
     if (!showResults || !multiplayer) return;
     if (!room) return;
 
     async function send() {
       const player = isHost ? "host" : "guest";
-
       const res = await fetch("/api/rooms/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ room, player, score }),
       });
-
       const data = await res.json();
       if (data.finished) {
         setWinner(data.result);
         setFinalScores(data.scores);
       }
     }
-
     send();
-  }, [showResults, score, multiplayer, isHost, room]);
+  }, [showResults, room, multiplayer, score, isHost]);
 
-  // RECEIVE SCORE
+  // Ακούμε το τελικό score από Pusher (score-final)
   useEffect(() => {
     if (!multiplayer || !room) return;
 
     const channel = pusherClient.subscribe(`room-${room}`);
-
     channel.bind("score-final", (data: any) => {
       setWinner(data.winner);
       setFinalScores(data.scores);
@@ -230,7 +170,7 @@ export default function QuizCategoryPage() {
     };
   }, [multiplayer, room]);
 
-  // FEEDBACK
+  // Πλοήγηση στο feedback
   function goToFeedback() {
     if (!multiplayer) {
       router.push(
@@ -238,7 +178,6 @@ export default function QuizCategoryPage() {
       );
       return;
     }
-
     if (winner && finalScores) {
       router.push(
         `/feedback?winner=${winner}&hostScore=${finalScores.host}&guestScore=${finalScores.guest}`
@@ -246,13 +185,8 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // LOADING FIX
-  if (
-    !hydrated ||
-    Number.isNaN(category) ||
-    loading ||
-    (!currentQuestion && !showResults)
-  ) {
+  // GLOBAL LOADING
+  if (!paramsReady || loading || (!currentQuestion && !showResults)) {
     return (
       <div className="quiz-container">
         <h1>Loading quiz…</h1>
@@ -268,13 +202,11 @@ export default function QuizCategoryPage() {
       <div className="quiz-container">
         <h1>Game Over!</h1>
 
-        {!multiplayer && (
+        {!multiplayer ? (
           <p>
             Your score: {score} / {questions.length}
           </p>
-        )}
-
-        {multiplayer && (
+        ) : (
           <>
             <p>Your score: {score}</p>
 
@@ -322,7 +254,7 @@ export default function QuizCategoryPage() {
       )}
 
       <h3>
-        Question {currentIndex + 1} / {questions.length}
+        Question {currentIndex + 1}/{questions.length}
       </h3>
 
       <div
@@ -367,7 +299,9 @@ export default function QuizCategoryPage() {
           style={{ marginTop: 20 }}
           onClick={nextQuestion}
         >
-          {currentIndex + 1 === questions.length ? "Finish" : "Next Question"}
+          {currentIndex + 1 === questions.length
+            ? "Finish"
+            : "Next Question"}
         </button>
       )}
 
