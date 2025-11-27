@@ -25,12 +25,16 @@ export default function RoomPage() {
   const code = params.code as string;
   const isHost = searchParams.get("host") === "1";
 
+  // 🔥 NEW: Read category & difficulty from URL
+  const category = Number(searchParams.get("category") || 9);
+  const difficulty = searchParams.get("difficulty") || "";
+
   const [guests, setGuests] = useState(0);
   const [joining, setJoining] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // ------------------------------------
-  // 1️⃣ HOST AUTOMATIC RESET ROOM
+  // 1️⃣ HOST AUTOMATIC RESET ROOM (POST ONLY)
   // ------------------------------------
   useEffect(() => {
     if (isHost) {
@@ -110,24 +114,23 @@ export default function RoomPage() {
   }, [code, router]);
 
   // ------------------------------------
-  // 4️⃣ HOST: START GAME
+  // 4️⃣ HOST: START GAME  (category + difficulty FIXED)
   // ------------------------------------
   async function startGame() {
     if (!isHost || guests < 1) return;
 
-    const category = 9; // static category
-    const difficulty = "";
-
+    // 🔥 NEW: Use REAL category + difficulty
     const hostUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=1&difficulty=${difficulty}`;
     const guestUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=0&difficulty=${difficulty}`;
 
-    // Send to guest
+    // Send event to guest
     await fetch("/api/rooms/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ room: code, url: guestUrl }),
     });
 
+    // Move HOST to the quiz
     router.replace(hostUrl);
   }
 
@@ -159,6 +162,9 @@ export default function RoomPage() {
       <h1>Room code: {code}</h1>
 
       <p>Players: {totalPlayers}/2</p>
+
+      <p><b>Category:</b> {category}</p>
+      <p><b>Difficulty:</b> {difficulty || "Any"}</p>
 
       <ul style={{ marginTop: 16 }}>
         <li>Player 1 (Host) {isHost && "← You"}</li>
