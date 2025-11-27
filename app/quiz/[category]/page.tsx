@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useParams, useRouter } from "next/navigation";
 import { pusherClient } from "@/lib/pusher-client";
 
@@ -20,7 +20,6 @@ type Scores = {
   guest?: number;
 };
 
-// Shuffle helper
 function shuffleArray<T>(arr: T[]): T[] {
   const copy = [...arr];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -35,51 +34,44 @@ export default function QuizCategoryPage() {
   const params = useParams();
   const router = useRouter();
 
-  // MUST BE FIRST HOOKS
+  // HYDRATION FIX
   const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
 
-  useEffect(() => {
-    setHydrated(true);
-  }, []);
+  // PARAMS
+  const rawCategory = params.category;
+  const category =
+    typeof rawCategory === "string"
+      ? Number(rawCategory)
+      : Array.isArray(rawCategory)
+      ? Number(rawCategory[0])
+      : NaN;
 
-  // ALL OTHER HOOKS BELOW ↓↓↓
-
-  const category = Number(params.category);
   const difficulty = searchParams.get("difficulty") ?? "";
   const multiplayer = searchParams.get("multiplayer") === "1";
-
   const room = searchParams.get("room");
   const isHost = searchParams.get("host") === "1";
 
-  // Main states
+  // STATE
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
-
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
   const [score, setScore] = useState(0);
 
-  const [shuffledAnswers, setShuffledAnswers] = useState<AnswerOption[]>([]);
-
   const [showResults, setShowResults] = useState(false);
   const [winner, setWinner] = useState<string | null>(null);
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
-  // Redirect only after hydration
+  // LOAD QUESTIONS ONLY WHEN READY
   useEffect(() => {
     if (!hydrated) return;
-
-    if (!category || !room) {
-      router.replace("/");
-    }
-  }, [hydrated, category, room, router]);
-
-  // LOAD QUESTIONS
-  useEffect(() => {
-    if (!hydrated) return;
+    if (Number.isNaN(category)) return;
+    if (!room && multiplayer) return;
 
     async function load() {
+      setLoading(true);
       try {
         const res = await fetch("/api/questions", {
           method: "POST",
@@ -89,7 +81,6 @@ export default function QuizCategoryPage() {
         });
 
         const data = await res.json();
-
         if (data.ok && Array.isArray(data.data)) {
           setQuestions(data.data);
         } else {
@@ -103,25 +94,22 @@ export default function QuizCategoryPage() {
     }
 
     load();
-  }, [hydrated, category, difficulty]);
+  }, [hydrated, category, difficulty, room, multiplayer]);
 
   const currentQuestion = questions[currentIndex];
 
-  // shuffle answers safely
-  useEffect(() => {
-    if (!currentQuestion) return;
-
-    const allAnswers: AnswerOption[] = [
+  const shuffledAnswers = useMemo(() => {
+    if (!currentQuestion) return [];
+    return shuffleArray([
       { text: currentQuestion.correct_answer, isCorrect: true },
       ...currentQuestion.incorrect_answers.map((t) => ({
         text: t,
         isCorrect: false,
       })),
-    ];
-
-    setShuffledAnswers(shuffleArray(allAnswers));
+    ]);
   }, [currentQuestion]);
 
+  // HANDLE ANSWER
   function handleAnswer(option: AnswerOption) {
     if (isAnswered) return;
 
@@ -135,7 +123,7 @@ export default function QuizCategoryPage() {
 
   function nextQuestion() {
     if (currentIndex + 1 < questions.length) {
-      setCurrentIndex((p) => p + 1);
+      setCurrentIndex((prev) => prev + 1);
       setSelectedAnswer(null);
       setIsAnswered(false);
     } else {
@@ -143,9 +131,10 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // SEND SCORE (multiplayer)
+  // SEND SCORE
   useEffect(() => {
     if (!showResults || !multiplayer) return;
+    if (!room) return;
 
     async function send() {
       const player = isHost ? "host" : "guest";
@@ -157,7 +146,6 @@ export default function QuizCategoryPage() {
       });
 
       const data = await res.json();
-
       if (data.finished) {
         setWinner(data.result);
         setFinalScores(data.scores);
@@ -173,7 +161,7 @@ export default function QuizCategoryPage() {
 
     const channel = pusherClient.subscribe(`room-${room}`);
 
-    channel.bind("score-final", (data: { winner: string; scores: Scores }) => {
+    channel.bind("score-final", (data: any) => {
       setWinner(data.winner);
       setFinalScores(data.scores);
     });
@@ -184,6 +172,7 @@ export default function QuizCategoryPage() {
     };
   }, [multiplayer, room]);
 
+  // GO TO FEEDBACK
   function goToFeedback() {
     if (!multiplayer) {
       router.push(
@@ -199,33 +188,16 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // EARLY RETURNS BELOW ARE SAFE (hooks already declared above)
-
-  if (!hydrated) {
+  // 🔥🔥🔥 GLOBAL LOADING FIX — Για HOST και GUEST 🔥🔥🔥
+  if (!hydrated || Number.isNaN(category) || loading || (!currentQuestion && !showResults)) {
     return (
       <div className="quiz-container">
-        <h1>Preparing quiz…</h1>
+        <h1>Loading quiz…</h1>
       </div>
     );
   }
 
-  if (loading) {
-    return (
-      <div className="quiz-container">
-        <h1>Loading questions…</h1>
-      </div>
-    );
-  }
-
-  if (!currentQuestion && !showResults) {
-    return (
-      <div className="quiz-container">
-        <h1>No questions found</h1>
-      </div>
-    );
-  }
-
-  // RESULTS
+  // RESULTS SCREEN
   if (showResults) {
     const waiting = multiplayer && !winner;
 
@@ -233,10 +205,18 @@ export default function QuizCategoryPage() {
       <div className="quiz-container">
         <h1>Game Over!</h1>
 
-        {multiplayer ? (
+        {!multiplayer && (
+          <p>
+            Your score: {score} / {questions.length}
+          </p>
+        )}
+
+        {multiplayer && (
           <>
             <p>Your score: {score}</p>
+
             {!winner && <p>Waiting for opponent…</p>}
+
             {winner && (
               <>
                 <h2>
@@ -252,10 +232,6 @@ export default function QuizCategoryPage() {
               </>
             )}
           </>
-        ) : (
-          <p>
-            Your score: {score}/{questions.length}
-          </p>
         )}
 
         <button
@@ -270,54 +246,64 @@ export default function QuizCategoryPage() {
     );
   }
 
-  // MAIN QUIZ
+  // MAIN UI
   return (
     <div className="quiz-container">
       <h1>Quiz</h1>
 
       {multiplayer && (
-        <p>
-          Room: {room} ({isHost ? "Host" : "Guest"})
-        </p>
+        <div style={{ opacity: 0.7, marginBottom: 10 }}>
+          <p>Room: {room}</p>
+          <p>{isHost ? "You are the HOST" : "You are the GUEST"}</p>
+        </div>
       )}
 
       <h3>
-        Question {currentIndex + 1}/{questions.length}
+        Question {currentIndex + 1} / {questions.length}
       </h3>
 
       <div
         style={{
-          padding: 20,
-          background: "rgba(0,0,0,0.1)",
-          borderRadius: 10,
           marginBottom: 20,
+          padding: 20,
+          borderRadius: 10,
+          background: "rgba(0,0,0,0.1)",
         }}
         dangerouslySetInnerHTML={{ __html: currentQuestion.question }}
       />
 
       <div style={{ display: "grid", gap: 10 }}>
-        {shuffledAnswers.map((option) => (
-          <button
-            key={option.text}
-            className="next-btn"
-            onClick={() => handleAnswer(option)}
-            style={{
-              background:
-                isAnswered && option.isCorrect
-                  ? "rgba(0,200,0,0.4)"
-                  : isAnswered && selectedAnswer === option.text
-                  ? "rgba(200,0,0,0.4)"
-                  : selectedAnswer === option.text
-                  ? "rgba(255,255,255,0.3)"
-                  : "rgba(255,255,255,0.1)",
-            }}
-            dangerouslySetInnerHTML={{ __html: option.text }}
-          />
-        ))}
+        {shuffledAnswers.map((option) => {
+          const selected = selectedAnswer === option.text;
+          const correct = option.isCorrect;
+
+          let bg = "rgba(255,255,255,0.1)";
+
+          if (isAnswered) {
+            if (correct) bg = "rgba(0,200,0,0.4)";
+            else if (selected) bg = "rgba(200,0,0,0.4)";
+          } else if (selected) {
+            bg = "rgba(255,255,255,0.3)";
+          }
+
+          return (
+            <button
+              key={option.text}
+              className="next-btn"
+              style={{ background: bg }}
+              onClick={() => handleAnswer(option)}
+              dangerouslySetInnerHTML={{ __html: option.text }}
+            />
+          );
+        })}
       </div>
 
       {isAnswered && (
-        <button className="next-btn" onClick={nextQuestion} style={{ marginTop: 20 }}>
+        <button
+          className="next-btn"
+          style={{ marginTop: 20 }}
+          onClick={nextQuestion}
+        >
           {currentIndex + 1 === questions.length ? "Finish" : "Next Question"}
         </button>
       )}
