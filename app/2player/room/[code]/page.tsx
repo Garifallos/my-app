@@ -29,9 +29,22 @@ export default function RoomPage() {
   const [joining, setJoining] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ---------------------------------
-  // GUEST: JOIN ROOM
-  // ---------------------------------
+  // ------------------------------------
+  // 1️⃣ HOST AUTOMATIC RESET ROOM
+  // ------------------------------------
+  useEffect(() => {
+    if (isHost) {
+      fetch("/api/rooms/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+    }
+  }, [isHost, code]);
+
+  // ------------------------------------
+  // 2️⃣ GUEST: JOIN ROOM
+  // ------------------------------------
   useEffect(() => {
     let cancelled = false;
 
@@ -71,9 +84,9 @@ export default function RoomPage() {
     };
   }, [code, isHost]);
 
-  // ---------------------------------
-  // PUSHER: LISTEN FOR EVENTS
-  // ---------------------------------
+  // ------------------------------------
+  // 3️⃣ PUSHER SUBSCRIBE
+  // ------------------------------------
   useEffect(() => {
     const channelName = `room-${code}`;
     const channel = pusherClient.subscribe(channelName);
@@ -96,9 +109,9 @@ export default function RoomPage() {
     };
   }, [code, router]);
 
-  // ---------------------------------
-  // HOST: START GAME
-  // ---------------------------------
+  // ------------------------------------
+  // 4️⃣ HOST: START GAME
+  // ------------------------------------
   async function startGame() {
     if (!isHost || guests < 1) return;
 
@@ -108,7 +121,7 @@ export default function RoomPage() {
     const hostUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=1&difficulty=${difficulty}`;
     const guestUrl = `/quiz/${category}?multiplayer=1&room=${code}&host=0&difficulty=${difficulty}`;
 
-    // Notify guest via start-game event
+    // Send to guest
     await fetch("/api/rooms/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -120,9 +133,9 @@ export default function RoomPage() {
 
   const totalPlayers = 1 + guests;
 
-  // ---------------------------------
+  // ------------------------------------
   // UI
-  // ---------------------------------
+  // ------------------------------------
   if (joining) {
     return (
       <div className="quiz-container">
@@ -149,7 +162,6 @@ export default function RoomPage() {
 
       <ul style={{ marginTop: 16 }}>
         <li>Player 1 (Host) {isHost && "← You"}</li>
-
         {guests >= 1 && (
           <li>Player 2 (Guest) {!isHost && "← You"}</li>
         )}
