@@ -1,9 +1,9 @@
 import Pusher from "pusher-js";
 
-const key = process.env.NEXT_PUBLIC_PUSHER_KEY!;
-const cluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER!;
-
-export const pusherClient = new Pusher(key, {
-  cluster,
-  forceTLS: true,
-});
+export const pusherClient = new Pusher(
+  process.env.NEXT_PUBLIC_PUSHER_KEY!,
+  {
+    cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER!,
+    forceTLS: true,
+  }
+);
