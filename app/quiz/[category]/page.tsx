@@ -52,9 +52,11 @@ export default function QuizCategoryPage() {
   const room = searchParams.get("room");
   const isHost = searchParams.get("host") === "1";
 
-  // STATE
+  // STATES
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hostReady, setHostReady] = useState(false);
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
@@ -64,11 +66,45 @@ export default function QuizCategoryPage() {
   const [winner, setWinner] = useState<string | null>(null);
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
-  // LOAD QUESTIONS ONLY WHEN READY
+  // ---------------------------------------------
+  // ✅ HOST LOGIC: Wait for PUSHER questions-ready
+  // ---------------------------------------------
+  useEffect(() => {
+    if (!(multiplayer && isHost && room)) return;
+
+    const channel = pusherClient.subscribe(`room-${room}`);
+
+    channel.bind("questions-ready", (data: any) => {
+      console.log("🔥 Host received questions:", data.questions);
+      setQuestions(data.questions);
+      setLoading(false);
+      setHostReady(true);
+    });
+
+    // Ask backend to load questions
+    fetch("/api/rooms/start", {
+      method: "POST",
+      body: JSON.stringify({ room, category, difficulty }),
+    });
+
+    return () => {
+      channel.unbind("questions-ready");
+      pusherClient.unsubscribe(`room-${room}`);
+    };
+  }, [multiplayer, isHost, room, category, difficulty]);
+
+  // ---------------------------------------------
+  // ✅ GUEST + SINGLE PLAYER load questions normally
+  // ---------------------------------------------
   useEffect(() => {
     if (!hydrated) return;
     if (Number.isNaN(category)) return;
-    if (!room && multiplayer) return;
+
+    // Host NEVER loads questions manually
+    if (multiplayer && isHost) return;
+
+    // Guest only loads after hostReady is triggered
+    if (multiplayer && !isHost && !hostReady) return;
 
     async function load() {
       setLoading(true);
@@ -94,7 +130,7 @@ export default function QuizCategoryPage() {
     }
 
     load();
-  }, [hydrated, category, difficulty, room, multiplayer]);
+  }, [hydrated, category, difficulty, multiplayer, isHost, hostReady]);
 
   const currentQuestion = questions[currentIndex];
 
@@ -172,7 +208,7 @@ export default function QuizCategoryPage() {
     };
   }, [multiplayer, room]);
 
-  // GO TO FEEDBACK
+  // FEEDBACK
   function goToFeedback() {
     if (!multiplayer) {
       router.push(
@@ -188,7 +224,9 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // 🔥🔥🔥 GLOBAL LOADING FIX — Για HOST και GUEST 🔥🔥🔥
+  // ---------------------------------------------
+  // FINAL LOADING SCREEN (HOST + GUEST FIX)
+  // ---------------------------------------------
   if (!hydrated || Number.isNaN(category) || loading || (!currentQuestion && !showResults)) {
     return (
       <div className="quiz-container">
