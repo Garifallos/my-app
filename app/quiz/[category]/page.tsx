@@ -56,6 +56,7 @@ export default function QuizCategoryPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
   const [hostReady, setHostReady] = useState(false);
+  const [guestReady, setGuestReady] = useState(false);
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
@@ -67,7 +68,7 @@ export default function QuizCategoryPage() {
   const [finalScores, setFinalScores] = useState<Scores | null>(null);
 
   // ---------------------------------------------
-  // ✅ HOST LOGIC: Wait for PUSHER questions-ready
+  // HOST: Wait for questions-ready
   // ---------------------------------------------
   useEffect(() => {
     if (!(multiplayer && isHost && room)) return;
@@ -81,7 +82,7 @@ export default function QuizCategoryPage() {
       setHostReady(true);
     });
 
-    // Ask backend to load questions
+    // Host requests questions from backend
     fetch("/api/rooms/start", {
       method: "POST",
       body: JSON.stringify({ room, category, difficulty }),
@@ -94,17 +95,38 @@ export default function QuizCategoryPage() {
   }, [multiplayer, isHost, room, category, difficulty]);
 
   // ---------------------------------------------
-  // ✅ GUEST + SINGLE PLAYER load questions normally
+  // GUEST: Wait for the same questions-ready event
+  // ---------------------------------------------
+  useEffect(() => {
+    if (!(multiplayer && !isHost && room)) return;
+
+    const channel = pusherClient.subscribe(`room-${room}`);
+
+    channel.bind("questions-ready", (data: any) => {
+      console.log("🔥 Guest received questions:", data.questions);
+      setQuestions(data.questions);
+      setLoading(false);
+      setGuestReady(true);
+    });
+
+    return () => {
+      channel.unbind("questions-ready");
+      pusherClient.unsubscribe(`room-${room}`);
+    };
+  }, [multiplayer, isHost, room]);
+
+  // ---------------------------------------------
+  // SINGLE PLAYER + GUEST fallback load
   // ---------------------------------------------
   useEffect(() => {
     if (!hydrated) return;
     if (Number.isNaN(category)) return;
 
-    // Host NEVER loads questions manually
+    // Host NEVER manually loads
     if (multiplayer && isHost) return;
 
-    // Guest only loads after hostReady is triggered
-    if (multiplayer && !isHost && !hostReady) return;
+    // Guest loads questions only AFTER receiving questions-ready
+    if (multiplayer && !isHost && !guestReady) return;
 
     async function load() {
       setLoading(true);
@@ -130,7 +152,7 @@ export default function QuizCategoryPage() {
     }
 
     load();
-  }, [hydrated, category, difficulty, multiplayer, isHost, hostReady]);
+  }, [hydrated, category, difficulty, multiplayer, isHost, guestReady]);
 
   const currentQuestion = questions[currentIndex];
 
@@ -224,10 +246,13 @@ export default function QuizCategoryPage() {
     }
   }
 
-  // ---------------------------------------------
-  // FINAL LOADING SCREEN (HOST + GUEST FIX)
-  // ---------------------------------------------
-  if (!hydrated || Number.isNaN(category) || loading || (!currentQuestion && !showResults)) {
+  // LOADING FIX
+  if (
+    !hydrated ||
+    Number.isNaN(category) ||
+    loading ||
+    (!currentQuestion && !showResults)
+  ) {
     return (
       <div className="quiz-container">
         <h1>Loading quiz…</h1>
